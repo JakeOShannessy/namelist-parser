@@ -1,0 +1,17 @@
+name: namelist-parser
+version: 0.1.2
+cabal-version: >=1.2
+build-type: Simple
+license: AllRightsReserved
+license-file: ""
+synopsis: Parses Fortran Namelist files.
+description:  
+data-dir: ""
+ 
+library
+    build-depends: QuickCheck -any, array -any, base -any, parsec -any
+    exposed-modules: Text.Namelist
+    exposed: True
+    buildable: True
+    hs-source-dirs: src
+ 

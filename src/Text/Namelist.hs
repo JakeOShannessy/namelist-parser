@@ -1,133 +1,143 @@
-module Text.Namelist (
-    readNml, createNmlText, writeNml, Namelist(Namelist), NamelistFile(NamelistFile),
-    Parameter(Parameter), ParameterValue(ParString,ParDouble,ParInt,ParBool,ParArry,ParArryPart,ArrayEmpty), mkParArray
-) where
+{-# LANGUAGE FlexibleInstances #-}
+module Text.Namelist 
+-- (
+    -- readNml, createNmlText, writeNml, Namelist(Namelist), NamelistFile(NamelistFile),
+    -- Parameter(Parameter), ParameterValue(ParString,ParDouble,ParInt,ParBool,ParArry,ParArryPart,ArrayEmpty), mkParArray
+-- ) 
+where
 
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Token
 import Text.Parsec.Language (haskellDef)
-import Data.Array.IArray
+-- import Data.Array.IArray
+-- import Control.Exception
 import Data.List
+import Data.Map (Map(..))
+import qualified Data.Map as M
+-- import qualified Data.Repa as R
+import qualified Data.Vector as V
+import Debug.Trace as D
 --import System.Environment
 
 --TODO: split the arrays into a different stage
 
---readNml :: FilePath -> IO NamelistFile
-readNml file = do
-    s <- readFile file
-    let res = parse nameListFile file s
-        res2 = case res of
-            (Right nmlFile) -> Right (mergeAllNmlArr nmlFile)
+-- readNml :: FilePath -> IO NamelistFile
+readNml filepath = do
+    rawText <- readFile filepath
+    return $ case parse nameListParser filepath rawText of
+            (Right nmlFile) -> Right (nmlFile)
             (Left err)      -> Left err
-    return res2
+            
+readNmlTest n filepath = do
+    rawText <- readFile filepath
+    return $ case parse nameListParser filepath (unlines $ take n $ lines rawText) of
+            (Right nmlFile) -> Right (nmlFile)
+            (Left err)      -> Left err
+            
+parseNml :: String -> Either ParseError NamelistFile
+parseNml input = parse nameListParser "(unknown)" input
 
-nameListFile :: GenParser Char st NamelistFile
-nameListFile = do
-    comments <- many (noneOf "&")   -- definition of comment wrong
-    cs <- many nml
+nameListParser :: Parser NamelistFile
+nameListParser = do
+    headerComments <- many (noneOf "&")   -- definition of comment wrong
+    namelists <- many namelist
     eof
-    return (NamelistFile cs)
+    return (NamelistFile namelists)
     
 
-
-nml = do
-        (name, params) <- (between (char '&') (char '/') pars)
+namelist :: Parser Namelist
+namelist = do
+        (name, parameters) <- (between (char '&') (char '/') namelistContent)
         comments <- many (noneOf "&")     -- definition of comment wrong
-        return (Namelist name comments params)
+        return (Namelist name comments parameters)
 
-pars = do
+-- TODO: amalgamation of arrays should occur here
+namelistContent :: Parser (String, Map String ParameterValue)
+namelistContent = do
     name <- count 4 letter
-    paramStrings <- parameter
-    return (name, paramStrings)
-
-parameter = do
-    skipMany (oneOf "\n ")
-    many splitPar
-
-splitPar = do
-    paramName <- many1 (noneOf "=/( \n\t")
-    pos <- optionMaybe (between (char '(') (char ')') parsePos)
-    skipMany (oneOf "\n\t ")
-    char '='
-    skipMany (oneOf "\n\t ")
-    paramValues <- sepEndBy parV (char ',')
-    skipMany (oneOf "\n\t ")
---    let pV = case pos of
---              Just bb -> ParArryPart bb paramValues
---              Nothing -> if (length paramValues) == 1 then (head paramValues)
---                               else ParList  paramValues
-    ---- The below is for proper arrays, but can leave some elements unbound, a design problem
-    let pV = case pos of
-              Just bb -> ParArryPart bb paramValues
-              Nothing -> if (length paramValues) == 1 then (head paramValues)
-                               else ParArryPart ((1,1),((length paramValues),1)) paramValues
-    return (Parameter paramName pV)
-
-mkArray' :: (Ix i) => (i,i) -> [ParameterValue] -> Array i ParameterValue
-mkArray' poses las = array poses (toArr poses las)
-toArr :: (Ix i) => (i,i) -> [a] -> [(i,a)]
-toArr poses ls = zip (range poses) ls
-
-createPos ls = "1:" ++ (show (length ls))
-
--- check rangeSize
-createAssoc (ParArryPart dims list) = zip (range dims) list
-
---TODO: check that all params have the same name
-combineArrParameters :: [Parameter] -> (String,[((Int,Int),ParameterValue)])
---combineArrParameters [] = (,)
-combineArrParameters ((Parameter name value):ps) = (name, (combineArrParts (value : combineArrParameters' ps)))
-
-combineArrParameters' [] = []
-combineArrParameters' ((Parameter name value):ps) = value : combineArrParameters' ps
-
-combineArrParts :: [ParameterValue] -> [((Int,Int),ParameterValue)]
-combineArrParts [] = []
-combineArrParts (arr:arrParts) = (createAssoc arr) ++ (combineArrParts arrParts)
-
-mkArray :: (String,[((Int,Int),ParameterValue)]) -> Parameter
-mkArray (name, assocs) = Parameter name (ParArry (mkParArray assocs))
-mkParArray :: [((Int,Int),ParameterValue)] -> (Array (Int,Int) ParameterValue)
-mkParArray assocs = assoc2Array assocs
-
-assoc2Array :: [((Int,Int),ParameterValue)] -> Array (Int,Int) ParameterValue
-assoc2Array assocs = accumArray (\a b -> b) ArrayEmpty (arrBounds assocs) assocs
-
---TODO: Consider getting rid of ArrayEmpty and managing the problem by other means
-
-arrBounds assocs = (\(x,y) -> ((minimum x, minimum y),(maximum x, maximum y))) $ unzip $ map (\(pos,_) -> pos) assocs
-
-findParArr ((Parameter pName (ParArryPart dims lst)):ps) =  (Parameter pName (ParArryPart dims lst)) : (findParArr ps)
-findParArr ((Parameter _ _):ps) = findParArr ps
-findParArr [] = []
-
-mergeAllNmlArr (NamelistFile nmlList) = NamelistFile (mergeAllNmlArr' nmlList)
-mergeAllNmlArr' [] = []
-mergeAllNmlArr' (nml:nmlList) = (mergeNmlArr nml) : (mergeAllNmlArr' nmlList)
-
-mergeNmlArr nml = Namelist nmlName comments ((remOldArr nmlParams) ++ newArrParams)
+    spaces
+    parameters <- many parameter
+    let parameterMap = foldl' (\acc (k,v)-> M.insertWith combine k v acc) M.empty parameters
+    return (name, parameterMap)
     where
-        (Namelist nmlName comments nmlParams) = nml
-        newArrParams = map mkArray $ map combineArrParameters $ splitCommonArr $ (findParArr nmlParams)
+        combine
+            (ParameterArray ((origXMin,origYMin),(origXMax,origYMax)) origArrVals)
+            (ParameterArray ((newXMin,newYMin),(newXMax,newYMax)) newArrVals)
+            = undefined
+        combine _ _ = error "Parameter entered twice"
+        
+sepByTest = do
+    ls <- sepBy (try intNum) (char ',') -- (try $ do; spaces; optional $ char ','; spaces;)
+    rem <- many anyChar
+    return (ls, rem)
 
-remOldArr :: [Parameter] -> [Parameter]
-remOldArr ((Parameter _ (ParArryPart _ _)):ps) = remOldArr ps
-remOldArr (par:ps) = par:(remOldArr ps)
-remOldArr [] = []
+parameter :: Parser (String, ParameterValue)
+parameter = do
+    name <- paramName
+    pos <- optionMaybe (between (char '(') (char ')') paramPos)
+    spaces
+    char '='
+    spaces
+    values <- sepValList paramValue
+    let value = case values of
+            [v] -> v
+            vs -> case pos of
+                    Nothing -> ParameterArray ((0,0),((length values)-1,0)) $ V.fromList values
+                    Just posVals -> ParameterArray posVals $ V.fromList values
+    spaces
+    optional $ char ','
+    spaces
+    return $ (name, value)
+    
+sepValList parser = many $ do
+            n <- (try parser)
+            (try $ do; spaces; optional $ char ','; spaces;)
+            return n
+    
+paramName = do
+    initialChar <- noneOf "=/( \n\t0123456789."
+    remainingChars <- many (noneOf "=/( \n\t.")
+    return $ initialChar:remainingChars
+    <?> "parameter name"
+-- paramName = many1 (alphaNum)
 
-splitCommonArr :: [Parameter] -> [[Parameter]]
-splitCommonArr [] = []
-splitCommonArr ((Parameter pName value):[]) = [[Parameter pName value]]
-splitCommonArr ((Parameter pName value):ps) = ((Parameter pName value) : (filter ((==) pName . (\(Parameter p _) -> p)) ps)) : (splitCommonArr (filter ((/=) pName . (\(Parameter q _) -> q)) ps))
-
-parV = do
-    quotedString
-    <|> number
-    <|> boolean
-
-parsePos = do
-    posVals <- sepBy1 (sepBy1 fInteger (char ':')) (char ',')
+paramPos :: Parser ((Int,Int),(Int,Int))
+paramPos = do
+    posVals <- sepBy1 (sepBy1 intNumN (char ':')) (char ',')
     return $ pos2Ind (map (map fromIntegral) posVals)
+
+paramValue =
+    quotedString
+    <|> try number
+    <|> boolean
+    <?> "parameter value"
+    
+boolean = do
+    cs <- do
+            try (string ".TRUE.")
+            <|> string ".FALSE."
+    return $ case cs of
+        ".TRUE." -> ParBool True
+        ".FALSE." -> ParBool False
+
+quotedString = do
+    char '\''
+    result <- quotedContent
+    char '\''
+    return $ ParString result
+    
+-- array :: Maybe ((Int,Int),(Int,Int)) -> Parser ParameterValue
+-- array pos = do -- TODO: should not be endBy, end comma not required
+    -- values <- sepBy1 (paramValue) (do; spaces; char ','; spaces;)
+    -- case pos of
+        -- Nothing -> if length values <= 1
+            -- then fail "insufficient number of values for list"
+            -- else return $ ParameterArray ((0,0),((length values)-1,0)) $ V.fromList values
+        -- Just posVals -> return $ ParameterArray posVals $ V.fromList values
+
+quotedContent = many quotedChar
+
+quotedChar = noneOf "\'\n"
 
 pos2Ind :: [[Int]] -> ((Int,Int),(Int,Int))
 pos2Ind (x:[]) = createRange x [1]
@@ -148,45 +158,93 @@ createRange x n | (length x == 2) && (length n == 1) = let a = head x  :: Int
 
 lexer = makeTokenParser haskellDef
 fInteger = decimal lexer
-fDouble = float lexer
+-- fDouble = float lexer
 natOrFloat = naturalOrFloat lexer
 
-number = do
-    sign <- optionMaybe (char '-')
-    cs <- natOrFloat
-    return $ case sign of
-        Just '-' -> case cs of
-                      Left n -> ParInt $ fromInteger (-n)
-                      Right n -> ParDouble (-n)
-        Nothing  -> case cs of
-                      Left n -> ParInt $ fromInteger n
-                      Right n -> ParDouble n
+intNum :: Parser ParameterValue
+intNum = do
+    sign' <- optionMaybe $ oneOf "-+"
+    let sign = case sign' of
+            Just '+' -> []
+            Just x -> [x]
+            Nothing -> []
+    digits <- many1 (oneOf "0123456789")
+    dot <- optionMaybe (char '.')
+    case dot of
+        Just _ -> fail "not int"
+        Nothing -> return ()
+    let num = sign ++ digits
+    return $ ParInt $ read num
+    <?> "int"
+    
+intNumN :: Parser Int
+intNumN = do
+    sign' <- optionMaybe $ oneOf "-+"
+    let sign = case sign' of
+            Just '+' -> []
+            Just x -> [x]
+            Nothing -> []
+    digits <- many1 (oneOf "0123456789")
+    dot <- optionMaybe (char '.')
+    case dot of
+        Just _ -> fail "not int"
+        Nothing -> return ()
+    let num = sign ++ digits
+    return $ read num
+    <?> "int"
+    
+floatNum :: Parser ParameterValue
+floatNum = do
+    sign' <- optionMaybe $ oneOf "-+"
+    let sign = case sign' of
+            Just '+' -> []
+            Just x -> [x]
+            Nothing -> []
+    digits <- many1 (oneOf "0123456789")
+    exp' <- optionMaybe $ exponentParse
+    let exp = case exp' of
+            Just x -> x
+            Nothing -> []
+    let num = sign++digits++exp
+    return $ ParDouble $ read num
+    <?> "float"
+    
+exponentParse = do
+    e <- many (oneOf "Ee")
+    sign' <- optionMaybe $ oneOf "-+"
+    let sign = case sign' of
+            Just '+' -> []
+            Just x -> [x]
+            Nothing -> []
+    digits1 <- many (oneOf "0123456789-+Ee.")
+    dot' <- optionMaybe $ char '.'
+    let dot = case dot' of
+            Just x -> [x]
+            Nothing -> []
+    digits2' <- optionMaybe $ many (oneOf "0123456789-+Ee.")
+    let digits2 = case digits2' of
+            Just x -> x
+            Nothing -> []
+    return $ e ++ sign ++ digits1 ++ dot ++ digits2
+    
+number
+    =   (try intNum)
+    <|> floatNum
+
+-- number = do
+    -- sign <- optionMaybe (char '-')
+    -- cs <- natOrFloat
+    -- return $ case sign of
+        -- Just '-' -> case cs of
+                      -- Left n -> ParInt $ fromInteger (-n)
+                      -- Right n -> ParDouble (-n)
+        -- Nothing  -> case cs of
+                      -- Left n -> ParInt $ fromInteger n
+                      -- Right n -> ParDouble n
 
 fInteger' = do
     cs <- fInteger
     return $ ParInt (fromIntegral cs)
-
-
-boolean = do
-    cs <- do
-            try (string ".TRUE.")
-            <|> string ".FALSE."
-    return $ case cs of
-        ".TRUE." -> ParBool True
-        ".FALSE." -> ParBool False
-
-quotedString = do
-    char '\''
-    result <- quotedContent
-    char '\''
-    return $ ParString result
-
-quotedContent = many quotedChar
-
-quotedChar = noneOf "\'\n"
-
-parseNml :: String -> Either ParseError NamelistFile
-parseNml input = parse nameListFile "(unknown)" input
 
 -- |Holds the entire Namelist file, which is basically a list of namelists
 data NamelistFile = NamelistFile
@@ -196,12 +254,12 @@ data NamelistFile = NamelistFile
 data Namelist = Namelist
     String
     String
-    [Parameter] -- ^Name, comments and List of Parameters
+    (Map String ParameterValue)-- ^Name, comments and List of Parameters
 
--- |Holds the name and value of a parameter
-data Parameter = Parameter
-    String     
-    ParameterValue  -- ^Name and Value
+-- -- |Holds the name and value of a parameter
+-- data Parameter = Parameter
+    -- String     
+    -- ParameterValue  -- ^Name and Value
 
 -- |The different types of parameter value
 data ParameterValue =
@@ -209,11 +267,18 @@ data ParameterValue =
         | ParDouble Double
         | ParInt Int
         | ParBool Bool
-        | ParArryPart ((Int,Int),(Int,Int)) [ParameterValue]
-        | ParArry (Array (Int,Int) ParameterValue)
-        | ArrayEmpty
+        | ParameterArray ((Int,Int),(Int,Int)) (V.Vector ParameterValue)
+        --comment | ArrayEmpty
+        
+-- class ParameterValue a
+-- instance ParameterValue [Char]
+-- instance ParameterValue Double
+-- instance ParameterValue Bool
+-- instance (ParameterValue a) => ParameterValue (ParameterArray a)
 
-
+-- -- TODO: double check this specification of namelist arrays
+-- -- note that these arrays may only be part of an array.
+-- data (ParameterValue a) => ParameterArray a = ParameterArray ((Int,Int),(Int,Int)) (V.Vector a)
 
 -- OUT
 -- |Render a Namelist
@@ -222,17 +287,24 @@ instance Show NamelistFile where
     
 -- |Render a Namelist
 instance Show Namelist where
-    show (Namelist name comments []) = "&" ++ name ++ " " ++ "/" ++ comments ++ "\n"
-    show (Namelist name comments parameters) = "&" ++ name ++ " " ++ (intercalate ", " (renderParameters parameters)) ++ " /" ++ comments ++ "\n"
+    -- show (Namelist name comments []) = "&" ++ name ++ " " ++ "/" ++ comments ++ "\n"
+    show (Namelist name comments parameters)
+        = "&" ++ name ++ " "
+        ++ (intercalate ",\n      " (renderParameters parameterList))
+        ++ " /" ++ comments ++ "\n"
+        where
+            parameterList = M.toList parameters
 
 -- |Render a list of Parameters
-renderParameters :: [Parameter] -> [String]
-renderParameters parameters = map show parameters
+renderParameters :: [(String, ParameterValue)] -> [String]
+renderParameters parameters = map renderParameter parameters
+renderParameter :: (String, ParameterValue) -> String
+renderParameter (name, value) = name ++ "=" ++  (show value)
 
 -- |Render a Parameter
-instance Show Parameter where
-    show (Parameter name value) = name ++ "=" ++  (show value)
-    --use intercalate to add commas to lists
+-- instance Show Parameter where
+    -- show (Parameter name value) = name ++ "=" ++  (show value)
+    -- --use intercalate to add commas to lists
 
 -- |Convert the Haskell types into appropriate namelist strings using Show class    
 instance Show ParameterValue where
@@ -241,31 +313,34 @@ instance Show ParameterValue where
     show (ParInt n)         = show n
     show (ParBool True)     = ".TRUE."
     show (ParBool False)    = ".FALSE."
-    show (ParArry arry)     = intercalate "," (map show list)
-        where list = extractLong (array2dList arry)
-    show (ParArryPart pos arry) = show pos ++ show arry
-    show ArrayEmpty         = "OHMG AN EMPTY ELEMENT"
+    -- TODO: fix this printing
+    show (ParameterArray pos arry)     = intercalate "," (V.toList $ V.map show arry)
+        -- where list = extractLong (array2dList arry)
+    -- show (ParArry arry)     = intercalate "," (map show list)
+        -- where list = extractLong (array2dList arry)
+    -- show (ParArryPart pos arry) = show pos ++ show arry
+    -- show ArrayEmpty         = "OHMG AN EMPTY ELEMENT"
 
-extractLong :: [[a]] -> [a]
-extractLong [x] = x
-extractLong xs | length ys == 1 = head ys
-    where ys = transpose xs
-array2dList :: (Array (Int,Int) ParameterValue) -> [[ParameterValue]]
-array2dList array = map (filter ifArrayNotEmpty) $ divArr cols elms
-    where bnds = snd (bounds array)
-          cols = snd bnds
-          elms = elems array
-divArr :: Int -> [ParameterValue] -> [[ParameterValue]]
-divArr _ [] = []
-divArr cols elms = take cols elms : divArr cols (drop cols elms)
-ifArrayNotEmpty :: ParameterValue -> Bool
-ifArrayNotEmpty x = case x of
-    ArrayEmpty -> False
-    _       -> True
-ifArrayNotEmptyP :: ParameterValue -> Bool
-ifArrayNotEmptyP x = case x of
-    ArrayEmpty -> False
-    _       -> True
+-- extractLong :: [[a]] -> [a]
+-- extractLong [x] = x
+-- extractLong xs | length ys == 1 = head ys
+    -- where ys = transpose xs
+-- array2dList :: (Array (Int,Int) ParameterValue) -> [[ParameterValue]]
+-- array2dList array = map (filter ifArrayNotEmpty) $ divArr cols elms
+    -- where bnds = snd (bounds array)
+          -- cols = snd bnds
+          -- elms = elems array
+-- divArr :: Int -> [ParameterValue] -> [[ParameterValue]]
+-- divArr _ [] = []
+-- divArr cols elms = take cols elms : divArr cols (drop cols elms)
+-- ifArrayNotEmpty :: ParameterValue -> Bool
+-- ifArrayNotEmpty x = case x of
+    -- ArrayEmpty -> False
+    -- _       -> True
+-- ifArrayNotEmptyP :: ParameterValue -> Bool
+-- ifArrayNotEmptyP x = case x of
+    -- ArrayEmpty -> False
+    -- _       -> True
 
 -- |Create the text in namelist format
 createNmlText :: NamelistFile -> String

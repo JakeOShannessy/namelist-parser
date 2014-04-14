@@ -1,14 +1,15 @@
 {-# LANGUAGE FlexibleInstances #-}
-module Text.Namelist 
--- (
-    -- readNml, createNmlText, writeNml, Namelist(Namelist), NamelistFile(NamelistFile),
-    -- Parameter(Parameter), ParameterValue(ParString,ParDouble,ParInt,ParBool,ParArry,ParArryPart,ArrayEmpty), mkParArray
--- ) 
+module Text.Namelist
+    ( module Text.Namelist
+    , module Text.Namelist.Types
+    )
 where
 
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Token
 import Text.Parsec.Language (haskellDef)
+
+import Text.Namelist.Types
 -- import Data.Array.IArray
 -- import Control.Exception
 import Data.List
@@ -246,29 +247,7 @@ fInteger' = do
     cs <- fInteger
     return $ ParInt (fromIntegral cs)
 
--- |Holds the entire Namelist file, which is basically a list of namelists
-data NamelistFile = NamelistFile
-    [Namelist]  -- ^The namelists which make up the file
 
--- |Holds the name and parameters for each namelist read in from namelist file
-data Namelist = Namelist
-    String
-    String
-    (Map String ParameterValue)-- ^Name, comments and List of Parameters
-
--- -- |Holds the name and value of a parameter
--- data Parameter = Parameter
-    -- String     
-    -- ParameterValue  -- ^Name and Value
-
--- |The different types of parameter value
-data ParameterValue =
-        ParString String
-        | ParDouble Double
-        | ParInt Int
-        | ParBool Bool
-        | ParameterArray ((Int,Int),(Int,Int)) (V.Vector ParameterValue)
-        --comment | ArrayEmpty
         
 -- class ParameterValue a
 -- instance ParameterValue [Char]

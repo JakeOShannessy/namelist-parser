@@ -5,19 +5,17 @@ module Text.Namelist
     )
 where
 
-import Text.ParserCombinators.Parsec
-import Text.ParserCombinators.Parsec.Token
-import Text.Parsec.Language (haskellDef)
-
-import Text.Read
-
-import Text.Namelist.Types
 import qualified Data.Array as A
 import Data.List
 import Data.Map (Map(..))
 import qualified Data.Map as M
-import qualified Data.Vector as V
-import Debug.Trace as D
+
+import Text.ParserCombinators.Parsec
+import Text.ParserCombinators.Parsec.Token
+import Text.Parsec.Language (haskellDef)
+import Text.Read
+import Text.Namelist.Types
+
 
 readNml :: FilePath -> IO (Either ParseError NamelistFile)
 readNml filepath = do
@@ -68,7 +66,7 @@ parameter = do
     let value = case values of
             [v] -> v
             vs -> case pos of
-                    Nothing -> ParArray $ buildArray (Range 1 ((length values) - 1), Single 1) values
+                    Nothing -> ParArray $ buildArray (Range 1 (length values), Single 1) values
                     Just posVals -> ParArray $ buildArray posVals values
     try (do; spaces; char ','; spaces;) <|> spaces
     return $ (name, value)
@@ -189,59 +187,6 @@ readIntMaybe = readMaybe
 
 readFloatMaybe :: String -> Maybe Double
 readFloatMaybe = readMaybe
-
--- floatNum :: Parser ParameterValue
--- -- floatNum :: Parser Double
--- floatNum = do
-    -- sign' <- optionMaybe $ oneOf "-+"
-    -- let sign = case sign' of
-            -- Just '+' -> []
-            -- Just x -> [x]
-            -- Nothing -> []
-    -- num' <- many1 (oneOf "0123456789-+Ee.")
-    -- if num' == "." then fail $ show num' ++ " is not a number" else return ()
-    -- let num 
-            -- -- | num' == "." = fail "not number"
-            -- | head num' == '.' = sign ++ ('0':num')
-            -- | last num' == '.' = sign ++ (num'++"0")
-            -- | otherwise = sign ++ num'
-    -- return $ ParDouble $ read $ trace ("NUM: >" ++ num ++ "<") num
-
--- floatNum = do
-    -- sign' <- optionMaybe $ oneOf "-+"
-    -- let sign = case sign' of
-            -- Just '+' -> []
-            -- Just x -> [x]
-            -- Nothing -> []
-    -- digits <- many1 (oneOf "0123456789")
-    -- exp' <- optionMaybe $ exponentParse
-    -- let exp = case exp' of
-            -- Just x -> x
-            -- Nothing -> []
-        -- digits' = if last digits == '.' then take (length digits - 1) digits else digits
-    -- let num = sign++digits'++exp
-    -- return $ ParDouble $ read $ trace ("NUM: >" ++ num ++ "< last: " ++ show (last digits)) num
-    -- <?> "float"
-    
--- exponentParse = do
-    -- e <- many (oneOf "Ee")
-    -- sign' <- optionMaybe $ oneOf "-+"
-    -- let sign = case sign' of
-            -- Just '+' -> []
-            -- Just x -> [x]
-            -- Nothing -> []
-    -- digits1 <- many (oneOf "0123456789-+Ee.")
-    -- dot' <- optionMaybe $ char '.'
-    -- let dot = case dot' of
-            -- Just x -> [x]
-            -- Nothing -> []
-    -- digits2' <- optionMaybe $ many (oneOf "0123456789-+Ee.")
-    -- let digits2 = case digits2' of
-            -- Just x -> x
-            -- Nothing -> []
-    -- return $ e ++ sign ++ digits1 ++ dot ++ digits2
-    
-
 
 
 -- OUT

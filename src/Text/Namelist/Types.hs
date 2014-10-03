@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
 module Text.Namelist.Types where
 
 import Data.Map (Map(..))
@@ -24,6 +25,19 @@ data ParameterValue =
         | ParInt Int
         | ParBool Bool
         | ParArray NamelistArray
+        deriving (Eq)
+
+
+class ToParameterValue a where
+    toParameterValue :: a -> ParameterValue
+instance ToParameterValue String where
+    toParameterValue str = ParString str
+instance ToParameterValue Bool where
+    toParameterValue bool = ParBool bool
+instance ToParameterValue Int where
+    toParameterValue int = ParInt int
+instance ToParameterValue Double where
+    toParameterValue double = ParDouble double
         
 type NamelistArray = Array (Int,Int) ParameterValue
 -- type NamelistArray = [((Int,Int), ParameterValue]

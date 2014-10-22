@@ -151,7 +151,7 @@ quotedString = do
 
 quotedContent = many quotedChar
 
-quotedChar = noneOf "\'\n"
+quotedChar = noneOf "\'"
 
 intNumN :: Parser Int
 intNumN = do
@@ -223,7 +223,7 @@ instance Show ParameterValue where
     show (ParBool True)     = ".TRUE."
     show (ParBool False)    = ".FALSE."
     -- TODO: fix this printing
-    show (ParArray arry)     = intercalate "," (map show $ A.assocs arry)
+    show (ParArray arry)     = intercalate "," (map (show .snd) $ A.assocs arry)
 
 
 -- |Create the text in namelist format

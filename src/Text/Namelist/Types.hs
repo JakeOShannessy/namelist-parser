@@ -16,7 +16,9 @@ data NamelistFile = NamelistFile
 data Namelist = Namelist
     String
     String
-    (Map String ParameterValue)-- ^Name, comments and map of parameters. Comments are considered as those that come after the namelist.
+    (Map String ParameterValue)
+    deriving (Eq)
+    -- ^Name, comments and map of parameters. Comments are considered as those that come after the namelist.
 
 -- |The different types of parameter value.
 data ParameterValue =

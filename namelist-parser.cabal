@@ -1,5 +1,5 @@
 name: namelist-parser
-version: 0.1.8
+version: 0.1.9
 cabal-version: >=1.2
 build-type: Simple
 license: AllRightsReserved
@@ -7,7 +7,7 @@ synopsis: Parses Fortran Namelist files.
 description: A parsec library for parsing Fortran Namelist files.
  
 library
-    build-depends: array -any, base -any, parsec -any, vector -any, containers -any
+    build-depends: array -any, base -any, parsec -any, vector -any, containers -any, text -any
     exposed-modules: Text.Namelist
                    , Text.Namelist.Types
     exposed: True

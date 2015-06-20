@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleInstances, OverloadedStrings #-}
 module Text.Namelist
     ( module Text.Namelist
     , module Text.Namelist.Types
@@ -9,21 +9,23 @@ import qualified Data.Array as A
 import Data.List
 import Data.Map (Map(..))
 import qualified Data.Map as M
+import Data.Monoid
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
 
-import Text.ParserCombinators.Parsec
-import Text.ParserCombinators.Parsec.Token
-import Text.Parsec.Language (haskellDef)
+import Text.Parsec
+import Text.Parsec.Text as PT
 import Text.Read
 import Text.Namelist.Types
 
 
 readNml :: FilePath -> IO (Either ParseError NamelistFile)
 readNml filepath = do
-    rawText <- readFile filepath
+    rawText <- T.readFile filepath
     return $ parse nameListParser filepath rawText
             
             
-parseNml :: String -> Either ParseError NamelistFile
+parseNml :: T.Text -> Either ParseError NamelistFile
 parseNml input = parse nameListParser "(unknown)" input
 
 nameListParser :: Parser NamelistFile
@@ -31,22 +33,27 @@ nameListParser = do
     headerComments <- many (noneOf "&")
     namelists <- many namelist
     eof
-    return (NamelistFile headerComments namelists)
+    return (NamelistFile (T.pack headerComments) namelists)
     
+eol :: Parser ()
+eol = do (try (string "\r\n")) <|> (string "\n")
+         return ()
+    <?> "end of line"
 
 namelist :: Parser Namelist
 namelist = do
         (name, parameters) <- between (char '&') (char '/') namelistContent
-        comments <- many (noneOf "&")
-        return (Namelist name comments parameters)
+        comments <- manyTill anyChar (lookAhead ((try (do; eol; spaces; char '&'; return ())) <|> eof))
+        spaces
+        return (Namelist name (T.pack comments) parameters)
 
-namelistContent :: Parser (String, Map String ParameterValue)
+namelistContent :: Parser (T.Text, Map T.Text ParameterValue)
 namelistContent = do
     name <- count 4 letter  -- TODO: is the definition really 4 letters
     spaces
     parameters <- many parameter
     let parameterMap = foldl' (\acc (k,v)-> M.insertWith combine k v acc) M.empty parameters
-    return (name, parameterMap)
+    return (T.pack name, parameterMap)
     where
         combine
             (ParArray arry1)
@@ -55,7 +62,7 @@ namelistContent = do
         combine _ _ = error "Parameter entered twice"
         
 
-parameter :: Parser (String, ParameterValue)
+parameter :: Parser (T.Text, ParameterValue)
 parameter = do
     name <- paramName
     pos <- optionMaybe paramPos
@@ -68,8 +75,8 @@ parameter = do
             vs -> case pos of
                     Nothing -> ParArray $ buildArray (Range 1 (length values), Single 1) values
                     Just posVals -> ParArray $ buildArray posVals values
-    try (do; spaces; char ','; spaces;) <|> spaces
-    return $ (name, value)
+    try ((do; spaces; char ','; spaces;) :: Parser ()) <|> spaces
+    return $ (T.pack name, value)
     <?> "parameter"
     
 -- |Create an array given a set of Ranges and the values.
@@ -91,6 +98,7 @@ buildArrayIndices ((Single x),(Range y1 y2)) = zip (repeat x) [y1..y2]
 buildArrayIndices ((Range x1 x2), (Single y)) = zip [x1..x2] (repeat y)
 buildArrayIndices ((Range _ _), (Range _ _)) = error "two dimensional ranges not supported"
     
+sepValList :: (Parser ParameterValue) -> Parser [ParameterValue]
 sepValList parser = many $ do
             n <- (try parser)
             (try $ do; spaces; optional $ char ','; spaces;)
@@ -128,12 +136,14 @@ parseRange = do
     
 data Range = Single Int | Range Int Int
     
+paramValue :: Parser ParameterValue
 paramValue =
     quotedString
     <|> try number
     <|> try boolean
     <?> "parameter value"
     
+boolean :: Parser ParameterValue
 boolean = do
     cs <- do
             try (string ".TRUE.")
@@ -142,11 +152,12 @@ boolean = do
         ".TRUE." -> ParBool True
         ".FALSE." -> ParBool False
 
+quotedString :: Parser ParameterValue
 quotedString = do
     char '\''
     result <- quotedContent
     char '\''
-    return $ ParString result
+    return $ ParString $ T.pack result
     
 
 quotedContent = many quotedChar
@@ -163,7 +174,7 @@ intNumN = do
     return $ read num
     <?> "int"
     
-
+number :: Parser ParameterValue
 number = do
     sign' <- optionMaybe $ oneOf "-+"
     let sign = case sign' of
@@ -191,33 +202,45 @@ readFloatMaybe = readMaybe
 
 -- OUT
 -- |Render a Namelist
-instance Show NamelistFile where
-    show (NamelistFile comments nmls) = intercalate "" (map show nmls)
+instance PPrint NamelistFile where
+    pprint (NamelistFile comments nmls) = T.intercalate "" (map pprint nmls)
     
 -- |Render a Namelist
-instance Show Namelist where
+instance PPrint Namelist where
     -- show (Namelist name comments []) = "&" ++ name ++ " " ++ "/" ++ comments ++ "\n"
-    show (Namelist name comments parameters)
-        = "&" ++ name ++ " "
-        ++ (intercalate ",\n      " (renderParameters parameterList))
-        ++ " /" ++ comments ++ "\n"
+    pprint (Namelist name comments parameters)
+        = "&" <> name <> " "
+        <> (T.intercalate ",\n      " (renderParameters parameterList))
+        <> " /" <> comments <> "\n"
         where
             parameterList = M.toList parameters
 
 -- |Render a list of Parameters
-renderParameters :: [(String, ParameterValue)] -> [String]
+renderParameters :: [(T.Text, ParameterValue)] -> [T.Text]
 renderParameters parameters = map renderParameter parameters
-renderParameter :: (String, ParameterValue) -> String
-renderParameter (name, value) = name ++ "=" ++  (show value)
+renderParameter :: (T.Text, ParameterValue) -> T.Text
+renderParameter (name, value) = name <> "=" <>  (pprint value)
 
 -- |Render a Parameter
 -- instance Show Parameter where
     -- show (Parameter name value) = name ++ "=" ++  (show value)
     -- --use intercalate to add commas to lists
+    
+class PPrint a where
+    pprint :: a -> T.Text
 
 -- |Convert the Haskell types into appropriate namelist strings using Show class    
+instance PPrint ParameterValue where
+    pprint (ParString s)      = "\'" <> s <> "\'"
+    pprint (ParDouble n)      = pprint n
+    pprint (ParInt n)         = pprint n
+    pprint (ParBool True)     = ".TRUE."
+    pprint (ParBool False)    = ".FALSE."
+    -- TODO: fix this printing
+    pprint (ParArray arry)     = T.intercalate "," (map (pprint .snd) $ A.assocs arry)
+
 instance Show ParameterValue where
-    show (ParString s)      = "\'" ++ s ++ "\'"
+    show (ParString s)      = "\'" <> show s <> "\'"
     show (ParDouble n)      = show n
     show (ParInt n)         = show n
     show (ParBool True)     = ".TRUE."
@@ -225,13 +248,22 @@ instance Show ParameterValue where
     -- TODO: fix this printing
     show (ParArray arry)     = intercalate "," (map (show .snd) $ A.assocs arry)
 
+    
+instance PPrint a => PPrint [a] where
+    pprint ls = "[" <> T.intercalate "," (map pprint ls) <> "]"
+    
+instance PPrint Double where
+    pprint d = T.pack $ show d
+    
+instance PPrint Int where
+    pprint d = T.pack $ show d
 
 -- |Create the text in namelist format
-createNmlText :: NamelistFile -> String
-createNmlText (NamelistFile comments nmlLists) = concat (map show nmlLists)
+createNmlText :: NamelistFile -> T.Text
+createNmlText (NamelistFile comments nmlLists) = T.concat (map pprint nmlLists)
 
 -- |Write namelist data to a namelist file
-writeNml :: String -> NamelistFile -> IO ()
+writeNml :: FilePath -> NamelistFile -> IO ()
 writeNml filename nmlFile = do
-    writeFile filename (createNmlText nmlFile)
+    T.writeFile filename (createNmlText nmlFile)
 

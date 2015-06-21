@@ -7,9 +7,11 @@ synopsis: Parses Fortran Namelist files.
 description: A parsec library for parsing Fortran Namelist files.
  
 library
-    build-depends: array -any, base -any, parsec -any, vector -any, containers -any, text -any
+    build-depends: array -any, base -any, attoparsec -any, vector -any, containers -any, text -any
     exposed-modules: Text.Namelist
                    , Text.Namelist.Types
+                   , Text.Namelist.Raw
+                   , Text.Namelist.Raw.Types
     exposed: True
     buildable: True
     hs-source-dirs: src

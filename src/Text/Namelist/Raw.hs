@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances, OverloadedStrings, BangPatterns #-}
 module Text.Namelist.Raw
     ( module Text.Namelist.Raw
     , module Text.Namelist.Raw.Types
@@ -15,10 +15,12 @@ import qualified Data.Text.IO as T
 import Data.Char
 import Data.Attoparsec.Text as P
 
+import Debug.Trace
+
 -- import Text.Parsec
 -- import Text.Parsec.Text as PT
 -- import Text.Read
-import Text.Namelist.Types
+import Text.Namelist.Raw.Types
 
 tester :: Parser a -> T.Text -> (Either String a)
 tester parser string = parseOnly (do; r <- parser; endOfInput; return r;) string
@@ -58,7 +60,8 @@ namelist = do
       --  (name, parameters) <- between (char '&') (char '/') namelistContent
       --  comments <- manyTill anyChar (lookAhead ((try (do; eol; skipSpace; char '&'; return ())) <|> eof))
       --  skipSpace
-    return (RawNamelist name comments parameters)
+    
+    return $ {- trace (show (RawNamelist name comments parameters)) -} (RawNamelist name comments parameters)
 
 parameter :: Parser RawParameter
 parameter = do
@@ -133,10 +136,10 @@ boolean = do
 
 quotedString :: Parser ParameterValue
 quotedString = do
-    qm <- satisfy (\c-> c == '\'' || c == '"')
+    !qm <- satisfy (\c-> c == '\'' || c == '"')
     result <- quotedContent
     char qm
-    return $ ParString $  result
+    return $ ParString result
     
 
 quotedContent = P.takeWhile quotedChar

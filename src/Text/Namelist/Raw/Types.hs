@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
-module Text.Namelist.Types where
+module Text.Namelist.Raw.Types where
 
 import Data.Map (Map(..))
 import qualified Data.Map as M
@@ -23,17 +23,17 @@ data RawNamelist = RawNamelist
     deriving (Show, Eq)
     -- ^Name, comments and map of parameters. Comments are considered as those that come after the namelist.
 
-data RawParameter = RawParameter T.Text (Maybe Position) [ParameterValue] deriving (Show, Eq)
+data RawParameter = RawParameter T.Text !(Maybe Position) ![ParameterValue] deriving (Show, Eq)
 
-data Position = Position1 Range | Position2 Range Range deriving (Show, Eq)
+data Position = Position1 !Range | Position2 !Range !Range deriving (Show, Eq)
 
-data Range = Single Int | Interval Int Int deriving (Show, Eq)
+data Range = Single !Int | Interval !Int !Int deriving (Show, Eq)
     
 -- |The different types of parameter value.
 data ParameterValue =
-        ParString T.Text
-        | ParDouble Double
-        | ParInt Int
+        ParString !T.Text
+        | ParDouble !Double
+        | ParInt !Int
         | ParBool Bool
         deriving (Eq, Show)
 

@@ -13,13 +13,14 @@ import qualified Data.Vector as V
 data NamelistFile = NamelistFile
     T.Text -- ^Comments. These are those that come at the start of the file.
     [Namelist]  -- ^The namelists which make up the file
+    deriving (Show)
 
 -- |Holds the name and parameters for each namelist read in from namelist file.
 data Namelist = Namelist
     T.Text
     T.Text
     (Map T.Text ParameterValue)
-    deriving (Eq)
+    deriving (Eq, Show)
     -- ^Name, comments and map of parameters. Comments are considered as those that come after the namelist.
 
 -- |The different types of parameter value.
@@ -29,7 +30,7 @@ data ParameterValue =
         | ParInt Int
         | ParBool Bool
         | ParArray NamelistArray
-        deriving (Eq)
+        deriving (Eq, Show)
 
 
 class ToParameterValue a where
@@ -44,6 +45,6 @@ instance ToParameterValue Int where
     toParameterValue int = ParInt int
 instance ToParameterValue Double where
     toParameterValue double = ParDouble double
-        
+
 type NamelistArray = Array (Int,Int) ParameterValue
 -- type NamelistArray = [((Int,Int), ParameterValue]

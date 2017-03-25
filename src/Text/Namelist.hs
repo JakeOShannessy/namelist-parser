@@ -1,4 +1,7 @@
-{-# LANGUAGE FlexibleInstances, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE ApplicativeDo     #-}
 module Text.Namelist
     ( module Text.Namelist
     , module Text.Namelist.Types
@@ -13,70 +16,47 @@ import Data.Monoid
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
+import Debug.Trace
+
 import Text.Parsec
-import Text.Parsec.Text as PT
+import Text.Parsec.Char
+import qualified Text.Parsec.Text as PT
+-- import Text.Parsec.Text (Parser)
 import Text.Read
 import Text.Namelist.Types
-
+-- import Text.Namelist.Raw.Types (Range())
 
 readNml :: FilePath -> IO (Either ParseError NamelistFile)
 readNml filepath = do
     rawText <- T.readFile filepath
-    return $ parse namelistParser filepath rawText
-
-readNmlOfType :: T.Text -> FilePath -> IO (Either ParseError NamelistFile)
-readNmlOfType nmlName filepath = do
-    rawText <- T.readFile filepath
-    return $ parse (namelistParserOfType nmlName) filepath rawText
+    pure $ parse namelistParser filepath rawText
 
 parseNml :: T.Text -> Either ParseError NamelistFile
 parseNml input = parse namelistParser "(unknown)" input
 
-parseNmlOfType :: T.Text -> T.Text -> Either ParseError NamelistFile
-parseNmlOfType nmlName input = parse (namelistParserOfType nmlName) "(unknown)" input
-
-namelistParserOfType :: T.Text -> Parser NamelistFile
-namelistParserOfType nmlName = do
-    headerComments <- many (noneOf "&")
-    namelists <- many (namelistOfType nmlName)
-    eof
-    return (NamelistFile (T.pack headerComments) namelists)
-
-namelistParser :: Parser NamelistFile
+namelistParser :: (Monad m, Stream s m Char) => ParsecT s u m NamelistFile
 namelistParser = do
-    headerComments <- many (noneOf "&")
+    headerComments <- manyTill anyChar (lookAhead (try (char '&' *> count 4 letter)))
     namelists <- many namelist
     eof
-    return (NamelistFile (T.pack headerComments) namelists)
+    pure (NamelistFile (T.pack headerComments) namelists)
 
-eol :: Parser ()
-eol = do (try (string "\r\n")) <|> (string "\n")
-         return ()
-    <?> "end of line"
-
-namelist :: Parser Namelist
+namelist :: (Monad m, Stream s m Char) => ParsecT s u m Namelist
 namelist = do
-        (name, parameters) <- between (char '&') (char '/') namelistContent
-        comments <- manyTill anyChar (lookAhead ((try (do; eol; spaces; char '&'; return ())) <|> eof))
-        spaces
-        return (Namelist name (T.pack comments) parameters)
-
-namelistOfType :: T.Text -> Parser Namelist
-namelistOfType nmlName = do
-        (name, parameters) <- between (char '&') (char '/') namelistContent
-        comments <- manyTill anyChar (lookAhead ((try (do; eol; spaces; char '&'; return ())) <|> eof))
-        spaces
-        if name == nmlName
-            then return (Namelist name (T.pack comments) parameters)
-            else namelistOfType nmlName
-
-namelistContent :: Parser (T.Text, Map T.Text ParameterValue)
-namelistContent = do
+    -- TODO: allow for the omission of trailing '/'
+    char '&'
     name <- count 4 letter  -- TODO: is the definition really 4 letters
     spaces
     parameters <- many parameter
     let parameterMap = foldl' (\acc (k,v)-> M.insertWith combine k v acc) M.empty parameters
-    return (T.pack name, parameterMap)
+    -- pure (T.pack name, parameterMap)
+    comments <- option "" (do
+            char '/'
+            comments <- manyTill anyChar
+                (lookAhead ((try (do; endOfLine; spaces; char '&'; pure ())) <|> eof))
+            spaces
+            pure comments)
+    pure (Namelist (T.pack name) (T.pack comments) parameterMap)
     where
         combine
             (ParArray arry1)
@@ -84,8 +64,8 @@ namelistContent = do
             = ParArray (arry1 A.// (A.assocs arry2))
         combine _ _ = error "Parameter entered twice"
 
-
-parameter :: Parser (T.Text, ParameterValue)
+parameter :: (Monad m, Stream s m Char) =>
+    ParsecT s u m (T.Text, ParameterValue)
 parameter = do
     name <- paramName
     pos <- optionMaybe paramPos
@@ -93,48 +73,87 @@ parameter = do
     char '='
     spaces
     values <- sepValList paramValue
-    let value = case values of
-            [v] -> v
-            vs -> case pos of
-                    Nothing -> ParArray $ buildArray (Range 1 (length values), Single 1) values
-                    Just posVals -> ParArray $ buildArray posVals values
-    try ((do; spaces; char ','; spaces;) :: Parser ()) <|> spaces
-    return $ (T.pack name, value)
+    let value = case (pos,values) of
+            (Nothing,[v]) -> v
+            (Just posVals,[v]) -> ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt 1), Single 1) [v]
+            (Nothing, vs) ->  ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt (length values)), Single 1) values
+            (Just posVals, vs) -> ParArray $ buildArray posVals values
+    many (char ',' <|> space)
+    pure $ (T.pack name, value)
     <?> "parameter"
 
 -- |Create an array given a set of Ranges and the values.
 buildArray :: (Range, Range) -> [ParameterValue] -> NamelistArray
 buildArray ranges values =
     let
-        indices = buildArrayIndices ranges
+        indices = buildArrayIndices (length values) ranges
         (xs, ys) = unzip indices
-        minX = minimum xs
-        maxX = maximum xs
-        minY = minimum ys
-        maxY = maximum ys
+        minX = case xs of
+            [] -> error $ show ranges
+            x -> minimum x
+        maxX = case xs of
+            [] -> error ""
+            x -> maximum x
+        minY = case ys of
+            [] -> error ""
+            x -> minimum x
+        maxY = case ys of
+            [] -> error ""
+            x -> maximum x
     in A.array ((minX,minY),(maxX,maxY)) $ zip indices values
 
 -- |Turn a set of Ranges into a list of indices.
-buildArrayIndices :: (Range, Range) -> [(Int, Int)]
-buildArrayIndices ((Single x),(Single y)) = [(x,y)]
-buildArrayIndices ((Single x),(Range y1 y2)) = zip (repeat x) [y1..y2]
-buildArrayIndices ((Range x1 x2), (Single y)) = zip [x1..x2] (repeat y)
-buildArrayIndices ((Range _ _), (Range _ _)) = error "two dimensional ranges not supported"
+buildArrayIndices :: Int -> (Range, Range) -> [(Int, Int)]
+buildArrayIndices n ((Single x),(Single y)) = [(x,y)]
+buildArrayIndices n ((Single x),(Range (RangeValInt y1) (RangeValInt y2))) = zip (repeat x) [y1..y2]
+buildArrayIndices n ((Range (RangeValInt x1) (RangeValInt x2)), (Single y)) = zip [x1..x2] (repeat y)
+buildArrayIndices n ((Range RangeValDef RangeValDef), (Single y)) = zip [1..n] (repeat y)
+buildArrayIndices n ((Range (RangeValInt x1) RangeValDef), (Single y)) = zip [x1..n] (repeat y)
+buildArrayIndices n ((Range RangeValDef (RangeValInt x2)), (Single y)) = zip [1..x2] (repeat y)
+buildArrayIndices n ((Single y),(Range RangeValDef RangeValDef)) = zip [1..n] (repeat y)
+buildArrayIndices n ((Single y),(Range (RangeValInt x1) RangeValDef)) = zip [x1..n] (repeat y)
+buildArrayIndices n ((Single y),(Range RangeValDef (RangeValInt x2))) = zip [1..x2] (repeat y)
+buildArrayIndices n ((Range _ _), (Range _ _)) = error "two dimensional ranges not supported"
 
-sepValList :: (Parser ParameterValue) -> Parser [ParameterValue]
-sepValList parser = many $ do
-            n <- (try parser)
-            (try $ do; spaces; optional $ char ','; spaces;)
-            return n
+sepValList :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
+    -> ParsecT s u m [ParameterValue]
+sepValList p = do
+    x <- p
+    -- all parameter values must be of the same constructor
+    xs <- many $ try (valParse p x)
+    pure (x:xs)
 
+valParse :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
+    -> ParameterValue -> ParsecT s u m ParameterValue
+valParse p x = do
+    v <- spaces *> optional (char ',') *> spaces *> p
+    if matchPValTypes x v then pure v else fail "types in array don't match"
+
+matchPValTypes :: ParameterValue -> ParameterValue -> Bool
+matchPValTypes (ParString _) (ParString _) = True
+matchPValTypes (ParString _) _ = False
+
+matchPValTypes (ParDouble _) (ParDouble _) = True
+matchPValTypes (ParDouble _) _ = False
+
+matchPValTypes (ParInt _) (ParInt _) = True
+matchPValTypes (ParInt _) _ = False
+
+matchPValTypes (ParBool _) (ParBool _) =  True
+matchPValTypes (ParBool _) _ = False
+
+matchPValTypes (ParArray _) (ParArray _) = True
+matchPValTypes (ParArray _) _ = False
+
+paramName :: (Monad m, Stream s m Char) => ParsecT s u m String
 paramName = do
-    initialChar <- noneOf "=/( \n\t0123456789.,"
+    initialChar <- noneOf "&=/( \n\t0123456789.,"
     remainingChars <- many (noneOf "=/( \n\t.,")
-    return $ initialChar:remainingChars
+    pure $ initialChar:remainingChars
     <?> "parameter name"
 -- paramName = many1 (alphaNum)
 
-paramPos :: Parser (Range, Range)
+paramPos :: (Monad m, Stream s m Char) => ParsecT s u m (Range, Range)
 paramPos = between (char '(') (char ')') $ do
     r1 <- parseRange
     r2 <- optionMaybe $ do
@@ -142,62 +161,94 @@ paramPos = between (char '(') (char ')') $ do
         char ','
         spaces
         parseRange
-    return $ case r2 of
+    pure $ case r2 of
         Nothing -> (r1, Single 1)
         Just x -> (r1, x)
 
 -- |Parses values in the form of "x" or "x:y" where x and y are integers, e.g. "1:2"
-parseRange :: Parser Range
-parseRange = do
-    val1 <- intNumN
-    val2 <- optionMaybe $ do
-        char ':'
-        intNumN
-    return $ case val2 of
-        Nothing -> Single val1
-        Just x -> Range val1 x
+parseRange :: (Monad m, Stream s m Char) => ParsecT s u m Range
+parseRange = Text.Parsec.choice
+    [ char ':' *> pure (Range RangeValDef RangeValDef)
+    , do
+        val1 <- intNum
+        val2 <- optionMaybe $ do
+            char ':'
+            intNum
+        pure $ case val2 of
+            Nothing -> Single val1
+            Just x -> Range (RangeValInt val1) (RangeValInt x)
+    ]
 
-data Range = Single Int | Range Int Int
+data Range = Single Int | Range RangeVal RangeVal deriving (Eq, Show)
 
-paramValue :: Parser ParameterValue
+data RangeVal = RangeValInt Int | RangeValDef deriving (Eq, Show)
+
+paramValue :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
 paramValue =
     quotedString
-    <|> try number
+    <|> try (ParDouble <$> floatNum) -- assume all values are floats unless told otherwise
     <|> try boolean
     <?> "parameter value"
 
-boolean :: Parser ParameterValue
+boolean :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
 boolean = do
-    cs <- do
-            try (string ".TRUE.")
-            <|> string ".FALSE."
-    return $ case cs of
+    cs <- Text.Parsec.choice [string "T", string "F", try (string ".TRUE."), string ".FALSE."]
+    pure $ case cs of
+        "T" -> ParBool True
+        "F" -> ParBool False
         ".TRUE." -> ParBool True
         ".FALSE." -> ParBool False
 
-quotedString :: Parser ParameterValue
-quotedString = do
-    char '\''
-    result <- quotedContent
-    char '\''
-    return $ ParString $ T.pack result
+-- floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
+-- floatNum = signage <*> (read <$> many1 (oneOf "0123456789-+Ee."))
 
+floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
+floatNum = do
+    -- s <- char option ' ' (char '-' <|> char '+')
+    a <- simpleFloat
+    b <- option "" ((:) <$> (char 'e' <|> char 'E') <*> simpleFloat)
+    pure $ read (a++b)
 
-quotedContent = many quotedChar
+-- float without exponentiation
+-- this currently accepts an empty string, which should not be the case
+simpleFloat :: (Monad m, Stream s m Char) => ParsecT s u m String
+simpleFloat = do
+    s <- optionMaybe (char '-' <|> char '+')
+    de1s <- optionMaybe (many1 digit)
+    de2s <- optionMaybe (char '.' *> many digit)
+    d <- case (de1s, de2s) of
+            (Just a, Just "") -> pure a
+            (Just a, Just b) -> pure (a++('.':b))
+            (Just a, Nothing) -> pure a
+            (Nothing, Just "") -> fail "no number"
+            (Nothing, Just b) -> pure ('0':'.':b)
+            _ -> fail "no number"
+    return $ case s of
+        Just '-' ->  '-':d
+        _ -> d
 
-quotedChar = noneOf "\'"
+quotedString :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
+quotedString = quotedStringS '\'' <|> quotedStringS '\"'
 
-intNumN :: Parser Int
-intNumN = do
-    sign <- optionMaybe (oneOf "-+")
-    digits <- many1 (oneOf "0123456789-+")
-    let num = case sign of
-                Just s -> s:digits
-                Nothing -> digits
-    return $ read num
-    <?> "int"
+quotedStringS :: (Monad m, Stream s m Char) => Char -> ParsecT s u m ParameterValue
+quotedStringS c = (ParString . T.pack) <$> between (char c) (char c) (many (noneOf [c]))
 
-number :: Parser ParameterValue
+quotedContent :: (Monad m, Stream s m Char) => Char -> ParsecT s u m String
+quotedContent c = many (quotedChar c)
+
+quotedChar :: (Monad m, Stream s m Char) => Char -> ParsecT s u m Char
+quotedChar c  = noneOf [c]
+
+intNum :: (Monad m, Stream s m Char) => ParsecT s u m Int
+intNum = signage <*> nat <?> "Int"
+
+signage :: (Monad m, Stream s m Char, Num a) => ParsecT s u m (a -> a)
+signage = (const negate <$> char '-') <|> (const id <$> char '+') <|> pure id
+
+nat :: (Monad m, Stream s m Char) => ParsecT s u m Int
+nat = read <$> many1 digit
+
+number :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
 number = do
     sign' <- optionMaybe $ oneOf "-+"
     let sign = case sign' of
@@ -205,15 +256,15 @@ number = do
             Just x -> [x]
             Nothing -> []
     num' <- many1 (oneOf "0123456789-+Ee.")
-    if num' == "." then fail $ show num' ++ " is not a number" else return ()
+    if num' == "." then fail $ show num' ++ " is not a number" else pure ()
     let num
             | head num' == '.' = sign ++ ('0':num')
-            | last num' == '.' = sign ++ (num'++"0")
+            | last num' == '.' = sign ++ (num'++"0") -- TODO: this line will not work with scientific notation
             | otherwise = sign ++ num'
     case readIntMaybe num of
-        Just x -> return $ ParInt x
+        Just x -> pure $ ParInt x
         Nothing -> case readFloatMaybe num of
-            Just x -> return $ ParDouble x
+            Just x -> pure $ ParDouble x
             Nothing -> fail "not a number"
 
 readIntMaybe :: String -> Maybe Int
@@ -221,7 +272,6 @@ readIntMaybe = readMaybe
 
 readFloatMaybe :: String -> Maybe Double
 readFloatMaybe = readMaybe
-
 
 -- OUT
 -- |Render a Namelist
@@ -262,14 +312,14 @@ instance PPrint ParameterValue where
     -- TODO: fix this printing
     pprint (ParArray arry)     = T.intercalate "," (map (pprint .snd) $ A.assocs arry)
 
-instance Show ParameterValue where
-    show (ParString s)      = "\'" <> show s <> "\'"
-    show (ParDouble n)      = show n
-    show (ParInt n)         = show n
-    show (ParBool True)     = ".TRUE."
-    show (ParBool False)    = ".FALSE."
-    -- TODO: fix this printing
-    show (ParArray arry)     = intercalate "," (map (show .snd) $ A.assocs arry)
+-- instance Show ParameterValue where
+--     show (ParString s)      = "\'" <> show s <> "\'"
+--     show (ParDouble n)      = show n
+--     show (ParInt n)         = show n
+--     show (ParBool True)     = ".TRUE."
+--     show (ParBool False)    = ".FALSE."
+--     -- TODO: fix this printing
+--     show (ParArray arry)     = intercalate "," (map (show .snd) $ A.assocs arry)
 
 
 instance PPrint a => PPrint [a] where

@@ -126,7 +126,7 @@ sepValList p = do
 valParse :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
     -> ParameterValue -> ParsecT s u m ParameterValue
 valParse p x = do
-    v <- spaces *> optional (char ',') *> spaces *> p
+    v <- spaces *> {-optional-} (char ',') *> spaces *> p
     if matchPValTypes x v then pure v else fail "types in array don't match"
 
 matchPValTypes :: ParameterValue -> ParameterValue -> Bool
@@ -156,11 +156,7 @@ paramName = do
 paramPos :: (Monad m, Stream s m Char) => ParsecT s u m (Range, Range)
 paramPos = between (char '(') (char ')') $ do
     r1 <- parseRange
-    r2 <- optionMaybe $ do
-        spaces
-        char ','
-        spaces
-        parseRange
+    r2 <- optionMaybe (spaces *> char ',' <* spaces *> parseRange)
     pure $ case r2 of
         Nothing -> (r1, Single 1)
         Just x -> (r1, x)
@@ -190,14 +186,18 @@ paramValue =
     <|> try boolean
     <?> "parameter value"
 
+-- A boolean is either an F or T (case insensitive) followed by any series of
+-- non-whitespace characters. It may also pre prepended by a period.
 boolean :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
 boolean = do
-    cs <- Text.Parsec.choice [string "T", string "F", try (string ".TRUE."), string ".FALSE."]
+    optional (char '.')
+    cs <- Text.Parsec.choice (fmap char ['t','T','f','F'])
+    many (noneOf " \t\r\n/,")
     pure $ case cs of
-        "T" -> ParBool True
-        "F" -> ParBool False
-        ".TRUE." -> ParBool True
-        ".FALSE." -> ParBool False
+        't' -> ParBool True
+        'T' -> ParBool True
+        'f' -> ParBool False
+        'F' -> ParBool False
 
 -- floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
 -- floatNum = signage <*> (read <$> many1 (oneOf "0123456789-+Ee."))
@@ -247,25 +247,6 @@ signage = (const negate <$> char '-') <|> (const id <$> char '+') <|> pure id
 
 nat :: (Monad m, Stream s m Char) => ParsecT s u m Int
 nat = read <$> many1 digit
-
-number :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
-number = do
-    sign' <- optionMaybe $ oneOf "-+"
-    let sign = case sign' of
-            Just '+' -> []
-            Just x -> [x]
-            Nothing -> []
-    num' <- many1 (oneOf "0123456789-+Ee.")
-    if num' == "." then fail $ show num' ++ " is not a number" else pure ()
-    let num
-            | head num' == '.' = sign ++ ('0':num')
-            | last num' == '.' = sign ++ (num'++"0") -- TODO: this line will not work with scientific notation
-            | otherwise = sign ++ num'
-    case readIntMaybe num of
-        Just x -> pure $ ParInt x
-        Nothing -> case readFloatMaybe num of
-            Just x -> pure $ ParDouble x
-            Nothing -> fail "not a number"
 
 readIntMaybe :: String -> Maybe Int
 readIntMaybe = readMaybe

@@ -68,37 +68,37 @@ tests fdsExamplePaths =
     ]
 snippetTests = TestList
     [ TestLabel "Snippet1" $ parse namelist "Snippet1" "&RAMP ID='prof', Z= 0 F= 0 /"
-        ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParDouble 0),(T.pack "F",ParDouble 0)]))
+        ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParInt 0),(T.pack "F",ParInt 0)]))
     , TestLabel "Snippet2" $ parse namelist "Snippet2" "&RAMP ID='prof', Z= 0, F= 0 /"
-        ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParDouble 0),(T.pack "F",ParDouble 0)]))
+        ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParInt 0),(T.pack "F",ParInt 0)]))
     , TestLabel "Snippet3" $ parse parameter "Snippet3" "Z= 0"
-        ~?= Right (T.pack "Z",ParDouble 0)
+        ~?= Right (T.pack "Z",ParInt 0)
     , TestLabel "Snippet4" $ parse parameter "Snippet4" "MATL_ID(1,:) = 'MAT_A'"
         ~?= Right (T.pack "MATL_ID",ParArray (A.array ((1,1),(1,1)) [((1,1),ParString (T.pack "MAT_A"))]))
     , TestLabel "Ignore multiple commas" $ parse namelist "Snippet5" "&RAMP ID='prof',, Z= 0, F= 0 /"
-        ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParDouble 0),(T.pack "F",ParDouble 0)]))
+        ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParInt 0),(T.pack "F",ParInt 0)]))
     , TestLabel "Double and single quoted strings" $ parse namelist "Snippet6" "&PROP ID='ROSIN-RAMMLER' PART_ID='ROSIN-RAMMLER' QUANTITY=\"DIAMETER\" /"
         ~?= Right (Namelist (T.pack "PROP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "ROSIN-RAMMLER")),(T.pack "PART_ID",ParString (T.pack "ROSIN-RAMMLER")),(T.pack "QUANTITY",ParString (T.pack "DIAMETER"))]))
     , TestLabel "Snippet7" $ parse namelist "Snippet7" "&SURF ID='HOT'\n      DEFAULT=.TRUE.\n      TMP_FRONT = 1000.\n      TAU_T = 0.0 /"
         ~?= Right (Namelist (T.pack "SURF") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "HOT")),(T.pack "DEFAULT",ParBool True),(T.pack "TMP_FRONT",ParDouble 1000),(T.pack "TAU_T",ParDouble 0)]))
     , TestLabel "Comma separated parameter value array" $ parse parameter "Snippet8" "XB=110,200,-225,-175,0,50"
         ~?= Right (T.pack "XB",ParArray (A.array ((1,1),(6,1))
-            [ ((1,1),ParDouble 110)
-            , ((2,1),ParDouble 200)
-            , ((3,1),ParDouble (-225))
-            , ((4,1),ParDouble (-175))
-            , ((5,1),ParDouble 0)
-            , ((6,1),ParDouble 50)
+            [ ((1,1),ParInt 110)
+            , ((2,1),ParInt 200)
+            , ((3,1),ParInt (-225))
+            , ((4,1),ParInt (-175))
+            , ((5,1),ParInt 0)
+            , ((6,1),ParInt 50)
             ]))
     -- we cannot allow space separated arrays and also fulfill other options
     , TestLabel "Space separated parameter value array" $ parse parameter "Snippet9" "XB=110,200 -225,-175,0,50"
         ~?= Right (T.pack "XB",ParArray (A.array ((1,1),(6,1))
-            [ ((1,1),ParDouble 110)
-            , ((2,1),ParDouble 200)
-            , ((3,1),ParDouble (-225))
-            , ((4,1),ParDouble (-175))
-            , ((5,1),ParDouble 0)
-            , ((6,1),ParDouble 50)
+            [ ((1,1),ParInt 110)
+            , ((2,1),ParInt 200)
+            , ((3,1),ParInt (-225))
+            , ((4,1),ParInt (-175))
+            , ((5,1),ParInt 0)
+            , ((6,1),ParInt 50)
             ]))
     ]
 
@@ -164,4 +164,10 @@ floatParsing = TestList
     , TestLabel "simpleFloat \".\"" $ TestCase $ case parse simpleFloat "dot only" "." of
         Left e ->  assertBool "appropriately failed" True
         Right v -> assertBool "parsed an dot" False
+    , TestLabel "1.e1" $ case parse floatNumS "input" "1.e1" of
+        Left e ->  error $ show e
+        Right v -> v ~?= "1.0e1"
+    , TestLabel "1000." $ case parse floatNumS "input" "1000." of
+        Left e ->  error $ show e
+        Right v -> v ~?= "1000.0"
     ]

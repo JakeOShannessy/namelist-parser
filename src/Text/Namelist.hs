@@ -45,7 +45,7 @@ namelist :: (Monad m, Stream s m Char) => ParsecT s u m Namelist
 namelist = do
     -- TODO: allow for the omission of trailing '/'
     char '&'
-    name <- count 4 letter  -- TODO: is the definition really 4 letters
+    name <- many1 letter
     spaces
     parameters <- many parameter
     let parameterMap = foldl' (\acc (k,v)-> M.insertWith combine k v acc) M.empty parameters
@@ -182,9 +182,22 @@ data RangeVal = RangeValInt Int | RangeValDef deriving (Eq, Show)
 paramValue :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
 paramValue =
     quotedString
-    <|> try (ParDouble <$> floatNum) -- assume all values are floats unless told otherwise
+    <|> try number
     <|> try boolean
     <?> "parameter value"
+
+
+number :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
+number = do
+    numS <- floatNumS
+    let n = case readMaybe numS of
+                Just x -> Just $ ParInt x
+                Nothing -> case readMaybe numS of
+                    Just x -> Just $ ParDouble x
+                    Nothing -> Nothing
+    case n of
+        Just x -> pure x
+        Nothing -> fail "not a number"
 
 -- A boolean is either an F or T (case insensitive) followed by any series of
 -- non-whitespace characters. It may also pre prepended by a period.
@@ -202,12 +215,12 @@ boolean = do
 -- floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
 -- floatNum = signage <*> (read <$> many1 (oneOf "0123456789-+Ee."))
 
-floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
-floatNum = do
+floatNumS :: (Monad m, Stream s m Char) => ParsecT s u m String
+floatNumS = do
     -- s <- char option ' ' (char '-' <|> char '+')
     a <- simpleFloat
     b <- option "" ((:) <$> (char 'e' <|> char 'E') <*> simpleFloat)
-    pure $ read (a++b)
+    pure $ a++b
 
 -- float without exponentiation
 -- this currently accepts an empty string, which should not be the case
@@ -217,7 +230,7 @@ simpleFloat = do
     de1s <- optionMaybe (many1 digit)
     de2s <- optionMaybe (char '.' *> many digit)
     d <- case (de1s, de2s) of
-            (Just a, Just "") -> pure a
+            (Just a, Just "") -> pure (a++(".0"))
             (Just a, Just b) -> pure (a++('.':b))
             (Just a, Nothing) -> pure a
             (Nothing, Just "") -> fail "no number"
@@ -226,6 +239,9 @@ simpleFloat = do
     return $ case s of
         Just '-' ->  '-':d
         _ -> d
+
+floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
+floatNum = read <$> floatNumS
 
 quotedString :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
 quotedString = quotedStringS '\'' <|> quotedStringS '\"'

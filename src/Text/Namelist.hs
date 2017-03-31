@@ -217,9 +217,8 @@ boolean = do
 
 floatNumS :: (Monad m, Stream s m Char) => ParsecT s u m String
 floatNumS = do
-    -- s <- char option ' ' (char '-' <|> char '+')
     a <- simpleFloat
-    b <- option "" ((:) <$> (char 'e' <|> char 'E') <*> simpleFloat)
+    b <- option "" ((:) <$> (char 'e' <|> char 'E') <*> intNumS)
     pure $ a++b
 
 -- float without exponentiation
@@ -239,6 +238,14 @@ simpleFloat = do
     return $ case s of
         Just '-' ->  '-':d
         _ -> d
+
+intNumS :: (Monad m, Stream s m Char) => ParsecT s u m String
+intNumS = do
+    s <- optionMaybe (char '-' <|> char '+')
+    ds <- many1 digit
+    return $ case s of
+        Just '-' ->  '-':ds
+        _ -> ds
 
 floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
 floatNum = read <$> floatNumS

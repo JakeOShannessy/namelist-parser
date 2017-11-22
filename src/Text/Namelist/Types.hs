@@ -2,7 +2,7 @@
 module Text.Namelist.Types where
 
 import Data.Map (Map(..))
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 -- import qualified Data.Repa as R
 -- import qualified Data.Vector as V
@@ -18,6 +18,9 @@ data NamelistFile = NamelistFile
 -- |Holds the name and parameters for each namelist read in from namelist file.
 data Namelist = Namelist
     T.Text
+    T.Text
+    (Map T.Text ParameterValue)
+    | NamelistMacro
     T.Text
     (Map T.Text ParameterValue)
     deriving (Eq, Show)
@@ -46,5 +49,5 @@ instance ToParameterValue Int where
 instance ToParameterValue Double where
     toParameterValue double = ParDouble double
 
-type NamelistArray = Array (Int,Int) ParameterValue
+type NamelistArray = M.Map (Int,Int) ParameterValue
 -- type NamelistArray = [((Int,Int), ParameterValue]

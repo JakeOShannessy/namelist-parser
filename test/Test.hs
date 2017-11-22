@@ -2,7 +2,7 @@
 module Main where
 
 import qualified Data.Array as A
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid (mempty)
 import System.Environment
@@ -24,6 +24,8 @@ import qualified Data.Text as  T
 
 import System.FilePath
 import System.FilePath.Glob
+
+-- default (T.Text)
 
 main = do
     putStrLn "Running tests..."
@@ -59,8 +61,8 @@ tests fdsExamplePaths =
         (hUnitTestToTests simpleReadFileTests)
     , testGroup "Snippet parse tests"
         $ hUnitTestToTests snippetTests
-    -- , testGroup "FDS example files"
-    --     $ hUnitTestToTests (readExampleFileTests fdsExamplePaths)
+    , testGroup "FDS example files"
+        $ hUnitTestToTests (readExampleFileTests fdsExamplePaths)
     , testGroup "Float Parsing" $ hUnitTestToTests floatParsing
     -- , testProperty "leftOrRight Order"  prop_leftOrRight_order
     -- , testProperty "isConvex Start Point" prop_isConvex_startPoint
@@ -74,7 +76,7 @@ snippetTests = TestList
     , TestLabel "Snippet3" $ parse parameter "Snippet3" "Z= 0"
         ~?= Right (T.pack "Z",ParInt 0)
     , TestLabel "Snippet4" $ parse parameter "Snippet4" "MATL_ID(1,:) = 'MAT_A'"
-        ~?= Right (T.pack "MATL_ID",ParArray (A.array ((1,1),(1,1)) [((1,1),ParString (T.pack "MAT_A"))]))
+        ~?= Right (T.pack "MATL_ID",ParArray (M.fromList [((1,1),ParString (T.pack "MAT_A"))]))
     , TestLabel "Ignore multiple commas" $ parse namelist "Snippet5" "&RAMP ID='prof',, Z= 0, F= 0 /"
         ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParInt 0),(T.pack "F",ParInt 0)]))
     , TestLabel "Double and single quoted strings" $ parse namelist "Snippet6" "&PROP ID='ROSIN-RAMMLER' PART_ID='ROSIN-RAMMLER' QUANTITY=\"DIAMETER\" /"
@@ -82,7 +84,7 @@ snippetTests = TestList
     , TestLabel "Snippet7" $ parse namelist "Snippet7" "&SURF ID='HOT'\n      DEFAULT=.TRUE.\n      TMP_FRONT = 1000.\n      TAU_T = 0.0 /"
         ~?= Right (Namelist (T.pack "SURF") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "HOT")),(T.pack "DEFAULT",ParBool True),(T.pack "TMP_FRONT",ParDouble 1000),(T.pack "TAU_T",ParDouble 0)]))
     , TestLabel "Comma separated parameter value array" $ parse parameter "Snippet8" "XB=110,200,-225,-175,0,50"
-        ~?= Right (T.pack "XB",ParArray (A.array ((1,1),(6,1))
+        ~?= Right (T.pack "XB",ParArray (M.fromList
             [ ((1,1),ParInt 110)
             , ((2,1),ParInt 200)
             , ((3,1),ParInt (-225))
@@ -92,7 +94,7 @@ snippetTests = TestList
             ]))
     -- we cannot allow space separated arrays and also fulfill other options
     , TestLabel "Space separated parameter value array" $ parse parameter "Snippet9" "XB=110,200 -225,-175,0,50"
-        ~?= Right (T.pack "XB",ParArray (A.array ((1,1),(6,1))
+        ~?= Right (T.pack "XB",ParArray (M.fromList
             [ ((1,1),ParInt 110)
             , ((2,1),ParInt 200)
             , ((3,1),ParInt (-225))
@@ -100,6 +102,23 @@ snippetTests = TestList
             , ((5,1),ParInt 0)
             , ((6,1),ParInt 50)
             ]))
+    , TestLabel "Test indices(1)" $ parse parameter "Snippet10" "PLOT3D_QUANTITY(1)='MASS FRACTION'"
+        ~?= Right (T.pack "PLOT3D_QUANTITY",ParArray (M.fromList
+            [ ((1,1),ParString (T.pack "MASS FRACTION"))
+            ]))
+    , TestLabel "Test indices(2)" $ parse parameter "Snippet11" "PLOT3D_QUANTITY(2)='MASS FRACTION'"
+        ~?= Right (T.pack "PLOT3D_QUANTITY",ParArray (M.fromList
+            [ ((2,1),ParString (T.pack "MASS FRACTION"))
+            ]))
+    -- , TestLabel "Test indices" $ parse parameter "Snippet11" "&DUMP PLOT3D_QUANTITY(1)='MASS FRACTION' PLOT3D_SPEC_ID(1)='OXYGEN' PLOT3D_QUANTITY(2)='MASS FRACTION' PLOT3D_SPEC_ID(2)='SOOT' PLOT3D_QUANTITY(3)='TEMPERATURE' /"
+    --     ~?= Right (T.pack "XB",ParArray (A.array ((1,1),(6,1))
+    --         [ ((1,1),ParInt 110)
+    --         , ((2,1),ParInt 200)
+    --         , ((3,1),ParInt (-225))
+    --         , ((4,1),ParInt (-175))
+    --         , ((5,1),ParInt 0)
+    --         , ((6,1),ParInt 50)
+    --         ]))
     ]
 
 simpleReadFileTests = TestLabel "Simple Examples" $ TestList

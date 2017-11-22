@@ -11,10 +11,12 @@ where
 import qualified Data.Array as A
 import Data.List
 import Data.Map (Map(..))
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import Data.Monoid
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+
+import Control.Exception (handle, SomeException)
 
 import Debug.Trace
 
@@ -45,10 +47,12 @@ namelist :: (Monad m, Stream s m Char) => ParsecT s u m Namelist
 namelist = do
     -- TODO: allow for the omission of trailing '/'
     char '&'
+    m <- optionMaybe (char '\'')
     name <- many1 letter
     spaces
     parameters <- many parameter
-    let parameterMap = foldl' (\acc (k,v)-> M.insertWith combine k v acc) M.empty parameters
+    let parameterMap = -- trace (name) $
+            foldl' (\acc (k,v)-> M.insertWith combine k v acc) M.empty parameters
     -- pure (T.pack name, parameterMap)
     comments <- option "" (do
             char '/'
@@ -56,13 +60,16 @@ namelist = do
                 (lookAhead ((try (do; endOfLine; spaces; char '&'; pure ())) <|> eof))
             spaces
             pure comments)
-    pure (Namelist (T.pack name) (T.pack comments) parameterMap)
+    case m of
+        Just _ -> pure (NamelistMacro (T.pack name) parameterMap)
+        Nothing -> pure (Namelist (T.pack name) (T.pack comments) parameterMap)
     where
         combine
             (ParArray arry1)
             (ParArray arry2)
-            = ParArray (arry1 A.// (A.assocs arry2))
+            = ParArray (M.union arry2 arry1)
         combine _ _ = error "Parameter entered twice"
+
 
 parameter :: (Monad m, Stream s m Char) =>
     ParsecT s u m (T.Text, ParameterValue)
@@ -75,7 +82,7 @@ parameter = do
     values <- sepValList paramValue
     let value = case (pos,values) of
             (Nothing,[v]) -> v
-            (Just posVals,[v]) -> ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt 1), Single 1) [v]
+            -- (Just posVals,[v]) -> ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt 1), Single 1) [v]
             (Nothing, vs) ->  ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt (length values)), Single 1) values
             (Just posVals, vs) -> ParArray $ buildArray posVals values
     many (char ',' <|> space)
@@ -87,20 +94,7 @@ buildArray :: (Range, Range) -> [ParameterValue] -> NamelistArray
 buildArray ranges values =
     let
         indices = buildArrayIndices (length values) ranges
-        (xs, ys) = unzip indices
-        minX = case xs of
-            [] -> error $ show ranges
-            x -> minimum x
-        maxX = case xs of
-            [] -> error ""
-            x -> maximum x
-        minY = case ys of
-            [] -> error ""
-            x -> minimum x
-        maxY = case ys of
-            [] -> error ""
-            x -> maximum x
-    in A.array ((minX,minY),(maxX,maxY)) $ zip indices values
+    in M.fromList $ zip indices values
 
 -- |Turn a set of Ranges into a list of indices.
 buildArrayIndices :: Int -> (Range, Range) -> [(Int, Int)]
@@ -127,7 +121,11 @@ valParse :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
     -> ParameterValue -> ParsecT s u m ParameterValue
 valParse p x = do
     v <- spaces *> {-optional-} (char ',') *> spaces *> p
-    if matchPValTypes x v then pure v else fail "types in array don't match"
+    if matchPValTypes x v
+        then pure v
+        else
+            -- fail "types in array don't match"
+            pure v
 
 matchPValTypes :: ParameterValue -> ParameterValue -> Bool
 matchPValTypes (ParString _) (ParString _) = True
@@ -202,15 +200,18 @@ number = do
 -- A boolean is either an F or T (case insensitive) followed by any series of
 -- non-whitespace characters. It may also pre prepended by a period.
 boolean :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
-boolean = do
-    optional (char '.')
-    cs <- Text.Parsec.choice (fmap char ['t','T','f','F'])
-    many (noneOf " \t\r\n/,")
-    pure $ case cs of
-        't' -> ParBool True
-        'T' -> ParBool True
-        'f' -> ParBool False
-        'F' -> ParBool False
+boolean = char '.'*>
+    ((string "FALSE." *> pure (ParBool False))
+    <|> (string "TRUE." *> pure (ParBool True)))
+-- boolean = do
+--     optional (char '.')
+--     cs <- Text.Parsec.choice (fmap char ['t','T','f','F'])
+--     many (noneOf " \t\r\n/,")
+--     pure $ case cs of
+--         't' -> ParBool True
+--         'T' -> ParBool True
+--         'f' -> ParBool False
+--         'F' -> ParBool False
 
 -- floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
 -- floatNum = signage <*> (read <$> many1 (oneOf "0123456789-+Ee."))
@@ -291,6 +292,12 @@ instance PPrint Namelist where
         <> " /" <> comments <> "\n"
         where
             parameterList = M.toList parameters
+    pprint (NamelistMacro name parameters)
+        = "&'" <> name <> " "
+        <> (T.intercalate ",\n      " (renderParameters parameterList))
+        <> " /" <> "" <> "\n"
+        where
+            parameterList = M.toList parameters
 
 -- |Render a list of Parameters
 renderParameters :: [(T.Text, ParameterValue)] -> [T.Text]
@@ -314,7 +321,7 @@ instance PPrint ParameterValue where
     pprint (ParBool True)     = ".TRUE."
     pprint (ParBool False)    = ".FALSE."
     -- TODO: fix this printing
-    pprint (ParArray arry)     = T.intercalate "," (map (pprint .snd) $ A.assocs arry)
+    pprint (ParArray arry)     = T.intercalate "," (map (pprint . snd) $ M.assocs arry)
 
 -- instance Show ParameterValue where
 --     show (ParString s)      = "\'" <> show s <> "\'"

@@ -10,8 +10,6 @@ library
     build-depends: array -any, base -any, attoparsec -any, parsec -any, vector -any, containers -any, text -any
     exposed-modules: Text.Namelist
                    , Text.Namelist.Types
-                   , Text.Namelist.Raw
-                   , Text.Namelist.Raw.Types
     exposed: True
     buildable: True
     hs-source-dirs: src

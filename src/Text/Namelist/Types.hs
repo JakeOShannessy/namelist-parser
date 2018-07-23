@@ -9,6 +9,25 @@ import qualified Data.Text as T
 import Data.Array
 import qualified Data.Vector as V
 
+-- |A specficiation for reading a namelist file. In Fortran the data types that
+-- will be used when reading namelists are specified before reading, therefore
+-- in order parse accurately we must specifiy what we can read ahead of time.
+-- The key of the map is the group name.
+type NamelistSpec = (M.Map String GroupSpec)
+
+-- |Hold all of the information for a group (excluding the name). The key of the
+-- map is the parameter name.
+type GroupSpec = (M.Map String ParameterSpec)
+
+-- |The data type of a parameter.
+-- TODO: check what information Array requires (dimenions size etc.)
+data ParameterSpec
+    = PSString
+    | PSDouble
+    | PSInt
+    | PSBool
+    | PSArray
+
 -- |Holds the entire Namelist file, which is basically a list of namelists.
 data NamelistFile = NamelistFile
     T.Text -- ^Comments. These are those that come at the start of the file.

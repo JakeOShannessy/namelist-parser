@@ -28,29 +28,39 @@ import Text.Read
 import Text.Namelist.Types
 -- import Text.Namelist.Raw.Types (Range())
 
-readNml :: FilePath -> IO (Either ParseError NamelistFile)
-readNml filepath = do
+-- TODO: This should accept a Namelist Specification, otherwise the parser
+-- is ambiguous.
+readNmlWithSpec :: NamelistSpec -> FilePath -> IO (Either ParseError NamelistFile)
+readNmlWithSpec = undefined
+
+readNml :: NamelistSpec -> FilePath -> IO (Either ParseError NamelistFile)
+readNml spec filepath = do
     rawText <- T.readFile filepath
-    pure $ parse namelistParser filepath rawText
+    pure $ parse (namelistParser spec) filepath rawText
 
-parseNml :: T.Text -> Either ParseError NamelistFile
-parseNml input = parse namelistParser "(unknown)" input
+parseNml :: NamelistSpec -> T.Text -> Either ParseError NamelistFile
+parseNml spec input = parse (namelistParser spec) "(unknown)" input
 
-namelistParser :: (Monad m, Stream s m Char) => ParsecT s u m NamelistFile
-namelistParser = do
+namelistParser :: (Monad m, Stream s m Char) => NamelistSpec -> ParsecT s u m NamelistFile
+namelistParser spec = do
     headerComments <- manyTill anyChar (lookAhead (try (char '&' *> count 4 letter)))
-    namelists <- many namelist
+    namelists <- many (namelist spec)
     eof
     pure (NamelistFile (T.pack headerComments) namelists)
 
-namelist :: (Monad m, Stream s m Char) => ParsecT s u m Namelist
-namelist = do
+namelist :: (Monad m, Stream s m Char) => NamelistSpec -> ParsecT s u m Namelist
+namelist spec = do
     -- TODO: allow for the omission of trailing '/'
     char '&'
     m <- optionMaybe (char '\'')
     name <- many1 letter
+    -- TODO: once we have the name we need to use the data type specified in the
+    -- spec, or throw an error if it isn't recognised.
+    let groupSpec = case M.lookup name spec of
+            Just x -> x
+            Nothing -> error $ "Group: " <> name <> " is not in the spec"
     spaces
-    parameters <- many parameter
+    parameters <- many (parameter groupSpec)
     let parameterMap = -- trace (name) $
             foldl' (\acc (k,v)-> M.insertWith combine k v acc) M.empty parameters
     -- pure (T.pack name, parameterMap)
@@ -70,21 +80,31 @@ namelist = do
             = ParArray (M.union arry2 arry1)
         combine _ _ = error "Parameter entered twice"
 
-
-parameter :: (Monad m, Stream s m Char) =>
+parameter :: (Monad m, Stream s m Char) => GroupSpec ->
     ParsecT s u m (T.Text, ParameterValue)
-parameter = do
+parameter groupSpec = do
     name <- paramName
+    let parameterSpec = case M.lookup name groupSpec of
+            Just x -> x
+            Nothing ->  error $ "Parameter: " <> name <> " is not in the spec"
     pos <- optionMaybe paramPos
     spaces
     char '='
     spaces
-    values <- sepValList paramValue
-    let value = case (pos,values) of
-            (Nothing,[v]) -> v
-            -- (Just posVals,[v]) -> ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt 1), Single 1) [v]
-            (Nothing, vs) ->  ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt (length values)), Single 1) values
-            (Just posVals, vs) -> ParArray $ buildArray posVals values
+    -- Choose the parser depending on what the spec says
+    value <- case parameterSpec of
+        PSString -> quotedString
+        PSDouble -> number
+        PSInt -> number
+        PSBool -> boolean
+        PSArray -> do
+            values <- sepValList paramValue
+            let value = case (pos,values) of
+                    (Nothing,[v]) -> v
+                    -- (Just posVals,[v]) -> ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt 1), Single 1) [v]
+                    (Nothing, vs) ->  ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt (length values)), Single 1) values
+                    (Just posVals, vs) -> ParArray $ buildArray posVals values
+            pure value
     many (char ',' <|> space)
     pure $ (T.pack name, value)
     <?> "parameter"

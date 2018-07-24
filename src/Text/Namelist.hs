@@ -9,6 +9,7 @@ module Text.Namelist
 where
 
 import qualified Data.Array as A
+import Data.Char (toUpper)
 import Data.List
 import Data.Map (Map(..))
 import qualified Data.Map.Strict as M
@@ -56,7 +57,7 @@ namelist spec = do
     name <- many1 letter
     -- TODO: once we have the name we need to use the data type specified in the
     -- spec, or throw an error if it isn't recognised.
-    let groupSpec = case M.lookup name spec of
+    let groupSpec = case M.lookup (map toUpper name) spec of
             Just x -> x
             Nothing -> error $ "Group: " <> name <> " is not in the spec"
     spaces
@@ -84,7 +85,7 @@ parameter :: (Monad m, Stream s m Char) => GroupSpec ->
     ParsecT s u m (T.Text, ParameterValue)
 parameter groupSpec = do
     name <- paramName
-    let parameterSpec = case M.lookup name groupSpec of
+    let parameterSpec = case M.lookup (map toUpper name) groupSpec of
             Just x -> x
             Nothing ->  error $ "Parameter: " <> name <> " is not in the spec"
     pos <- optionMaybe paramPos

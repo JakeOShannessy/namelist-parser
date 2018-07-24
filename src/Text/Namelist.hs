@@ -98,10 +98,17 @@ parameter groupSpec = do
         PSDouble -> number
         PSInt -> number
         PSBool -> boolean
-        PSArray -> do
-            values <- sepValList paramValue
+        PSArray arrayType -> do
+            -- TODO: this doesn't handle single elements very well.
+            let parser = case arrayType of
+                    PSString -> quotedString
+                    PSDouble -> number
+                    PSInt -> number
+                    PSBool -> boolean
+                    PSArray _ -> error "Can't have nested array types"
+            values <- sepValList parser
             let value = case (pos,values) of
-                    (Nothing,[v]) -> v
+                    -- (Nothing,[v]) -> v
                     -- (Just posVals,[v]) -> ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt 1), Single 1) [v]
                     (Nothing, vs) ->  ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt (length values)), Single 1) values
                     (Just posVals, vs) -> ParArray $ buildArray posVals values
@@ -221,18 +228,18 @@ number = do
 -- A boolean is either an F or T (case insensitive) followed by any series of
 -- non-whitespace characters. It may also pre prepended by a period.
 boolean :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
-boolean = char '.'*>
-    ((string "FALSE." *> pure (ParBool False))
-    <|> (string "TRUE." *> pure (ParBool True)))
--- boolean = do
---     optional (char '.')
---     cs <- Text.Parsec.choice (fmap char ['t','T','f','F'])
---     many (noneOf " \t\r\n/,")
---     pure $ case cs of
---         't' -> ParBool True
---         'T' -> ParBool True
---         'f' -> ParBool False
---         'F' -> ParBool False
+-- boolean = char '.'*>
+--     ((string "FALSE." *> pure (ParBool False))
+--     <|> (string "TRUE." *> pure (ParBool True)))
+boolean = do
+    optional (char '.')
+    cs <- Text.Parsec.choice (fmap char ['t','T','f','F'])
+    many (noneOf " \t\r\n/,")
+    pure $ case cs of
+        't' -> ParBool True
+        'T' -> ParBool True
+        'f' -> ParBool False
+        'F' -> ParBool False
 
 -- floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
 -- floatNum = signage <*> (read <$> many1 (oneOf "0123456789-+Ee."))

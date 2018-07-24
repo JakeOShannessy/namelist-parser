@@ -26,7 +26,7 @@ data ParameterSpec
     | PSDouble
     | PSInt
     | PSBool
-    | PSArray
+    | PSArray ParameterSpec
 
 -- |Holds the entire Namelist file, which is basically a list of namelists.
 data NamelistFile = NamelistFile

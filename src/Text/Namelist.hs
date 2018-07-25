@@ -29,11 +29,6 @@ import Text.Read
 import Text.Namelist.Types
 -- import Text.Namelist.Raw.Types (Range())
 
--- TODO: This should accept a Namelist Specification, otherwise the parser
--- is ambiguous.
-readNmlWithSpec :: NamelistSpec -> FilePath -> IO (Either ParseError NamelistFile)
-readNmlWithSpec = undefined
-
 readNml :: NamelistSpec -> FilePath -> IO (Either ParseError NamelistFile)
 readNml spec filepath = do
     rawText <- T.readFile filepath

@@ -9,7 +9,7 @@ import qualified Data.Text as T
 import Data.Array
 import qualified Data.Vector as V
 
--- |A specficiation for reading a namelist file. In Fortran the data types that
+-- |A specification for reading a namelist file. In Fortran the data types that
 -- will be used when reading namelists are specified before reading, therefore
 -- in order parse accurately we must specifiy what we can read ahead of time.
 -- The key of the map is the group name.

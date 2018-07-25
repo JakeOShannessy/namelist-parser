@@ -50,16 +50,15 @@ namelist spec = do
     char '&'
     m <- optionMaybe (char '\'')
     name <- many1 letter <?> "group name"
-    -- TODO: once we have the name we need to use the data type specified in the
+    -- Once we have the name we use the data type specified in the
     -- spec, or throw an error if it isn't recognised.
     groupSpec <- case M.lookup (map toUpper name) spec of
             Just x -> pure x
             Nothing -> fail $ "Group: " <> name <> " is not in the spec"
     spaces
     parameters <- many (parameter groupSpec)
-    let parameterMap = -- trace (name) $
+    let parameterMap =
             foldl' (\acc (k,v)-> M.insertWith combine k v acc) M.empty parameters
-    -- pure (T.pack name, parameterMap)
     comments <- option "" (do
             char '/'
             comments <- manyTill anyChar

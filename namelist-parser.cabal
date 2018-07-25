@@ -36,3 +36,28 @@ test-suite tests
     , test-framework
     , test-framework-hunit
     , test-framework-quickcheck2
+
+benchmark bench-small
+    type: exitcode-stdio-1.0
+    main-is: BenchSmall.hs
+    other-modules: FDSSpec
+    ghc-options: -rtsopts -fprof-auto
+    -- benchmark-options: --output=benchmark.html
+    build-depends: base
+        , namelist-parser
+        , containers
+        , criterion
+    hs-source-dirs: bench, test
+
+benchmark bench-big
+    type: exitcode-stdio-1.0
+    main-is: BenchBig.hs
+    other-modules: FDSSpec
+    ghc-options: -rtsopts -fprof-auto
+    -- benchmark-options: --output=benchmark.html
+    build-depends: base
+        , namelist-parser
+        , containers
+        , criterion
+        , time
+    hs-source-dirs: bench, test

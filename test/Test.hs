@@ -165,13 +165,12 @@ snippetTests = TestList
     ]
 
 simpleReadFileTests = TestLabel "Simple Examples" $ TestList
-    [
-    -- TestLabel "Test A" $ TestCase $ do
-    --     Right nmlFile <- readNml "TestA.fds"
-    --     return ()
-    -- ,
-    TestLabel "Test B" $ TestCase $ do
-        parseResult <- readNml fdsSpec "TestB.fds"
+    -- A very large test case.
+    [ TestLabel "Test A" $ TestCase $ do
+        Right nmlFile <- readNml fdsSpec "test/TestA.fds"
+        return ()
+    , TestLabel "Test B" $ TestCase $ do
+        parseResult <- readNml fdsSpec "test/TestB.fds"
         case parseResult of
             Left e -> error $ show e
             Right nmlFile -> pure ()

@@ -54,12 +54,12 @@ namelist spec = do
     -- TODO: allow for the omission of trailing '/'
     char '&'
     m <- optionMaybe (char '\'')
-    name <- many1 letter
+    name <- many1 letter <?> "group name"
     -- TODO: once we have the name we need to use the data type specified in the
     -- spec, or throw an error if it isn't recognised.
-    let groupSpec = case M.lookup (map toUpper name) spec of
-            Just x -> x
-            Nothing -> error $ "Group: " <> name <> " is not in the spec"
+    groupSpec <- case M.lookup (map toUpper name) spec of
+            Just x -> pure x
+            Nothing -> fail $ "Group: " <> name <> " is not in the spec"
     spaces
     parameters <- many (parameter groupSpec)
     let parameterMap = -- trace (name) $
@@ -85,9 +85,9 @@ parameter :: (Monad m, Stream s m Char) => GroupSpec ->
     ParsecT s u m (T.Text, ParameterValue)
 parameter groupSpec = do
     name <- paramName
-    let parameterSpec = case M.lookup (map toUpper name) groupSpec of
-            Just x -> x
-            Nothing ->  error $ "Parameter: " <> name <> " is not in the spec"
+    parameterSpec <- case M.lookup (map toUpper name) groupSpec of
+            Just x -> pure x
+            Nothing ->  fail $ "Parameter: " <> name <> " is not in the spec"
     pos <- optionMaybe paramPos
     spaces
     char '='
@@ -137,18 +137,23 @@ buildArrayIndices n ((Single y),(Range (RangeValInt x1) RangeValDef)) = zip [x1.
 buildArrayIndices n ((Single y),(Range RangeValDef (RangeValInt x2))) = zip [1..x2] (repeat y)
 buildArrayIndices n ((Range _ _), (Range _ _)) = error "two dimensional ranges not supported"
 
+-- |Parse a list of values using the parser p separated by spaces commas or
+-- both. If a value is followed by an equal sign (after zero or more spaces)
+-- then it is a parameter name and not part of the array.
 sepValList :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
     -> ParsecT s u m [ParameterValue]
+-- TODO: still need to make sure that the next value is actually a value and not
+-- a parameter name followed by an equals sign
 sepValList p = do
     x <- p
     -- all parameter values must be of the same constructor
-    xs <- many $ try (valParse p x)
+    xs <- many $ try (valParse p x <* notFollowedBy (spaces *> char '='))
     pure (x:xs)
 
 valParse :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
     -> ParameterValue -> ParsecT s u m ParameterValue
 valParse p x = do
-    v <- spaces *> {-optional-} (char ',') *> spaces *> p
+    v <- spaces *> optional (char ',') *> spaces *> p
     if matchPValTypes x v
         then pure v
         else

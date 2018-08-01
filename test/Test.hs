@@ -17,6 +17,7 @@ import Test.QuickCheck
 import Test.HUnit
 
 import Text.Parsec
+import Text.Parsec.Pos
 import Text.Namelist
 
 import FDSSpec (fdsSpec)
@@ -69,7 +70,7 @@ tests fdsExamplePaths =
     ]
 snippetTests = TestList
     [ TestLabel "Snippet1" $ parse (namelist (M.fromList [("RAMP", M.fromList [("ID", PSString),("Z", PSDouble),("F", PSDouble)])])) "Snippet1" "&RAMP ID='prof', Z= 0 F= 0 /"
-        ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParInt 0),(T.pack "F",ParInt 0)]))
+        ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParInt 0),(T.pack "F",ParInt 0)]) (initialPos "Snippet1"))
     , let spec = M.fromList
             [ ("SURF", M.fromList
                 [ ("ID", PSString)
@@ -90,7 +91,8 @@ snippetTests = TestList
                     , (T.pack "MASS_FLUX",ParArray (M.fromList [((1,1),ParDouble 4.0e-2)]))
                     , (T.pack "TAU_MF",ParArray (M.fromList [((1,1),ParDouble 0.01)]))
                     , (T.pack "SPEC_ID",ParArray (M.fromList [((1,1),ParString (T.pack "METHANE"))]))
-                    ]))
+                    ])
+                (initialPos "Snippet2"))
 
     , let spec = M.fromList
             [ ("SURF", M.fromList
@@ -112,7 +114,8 @@ snippetTests = TestList
                     , (T.pack "MASS_FLUX",ParArray (M.fromList [((1,1),ParDouble 4.0e-2)]))
                     , (T.pack "TAU_MF",ParArray (M.fromList [((1,1),ParDouble 0.01)]))
                     , (T.pack "SPEC_ID",ParArray (M.fromList [((1,1),ParString (T.pack "METHANE"))]))
-                    ]))
+                    ])
+                (initialPos "Snippet3"))
 
     -- , TestLabel "Snippet2" $ parse namelist "Snippet2" "&RAMP ID='prof', Z= 0, F= 0 /"
     --     ~?= Right (Namelist (T.pack "RAMP") (T.pack "") (M.fromList [(T.pack "ID",ParString (T.pack "prof")),(T.pack "Z",ParInt 0),(T.pack "F",ParInt 0)]))

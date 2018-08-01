@@ -8,6 +8,17 @@ import qualified Data.Text as T
 -- import qualified Data.Vector as V
 import Data.Array
 import qualified Data.Vector as V
+import Text.Parsec (SourcePos)
+
+-- data SyntaxLocation = SyntaxLocation
+--     -- |Line of the syntax location
+--     { sl_line :: Integer
+--     -- ^Column (on the line) of the syntax location (from 1)
+--     , sl_col :: Integer
+--     -- -- ^Byte offset from the start of the file
+--     -- , sl_offset :: Integer
+--     }
+--     deriving (Eq,Show)
 
 -- |A specification for reading a namelist file. In Fortran the data types that
 -- will be used when reading namelists are specified before reading, therefore
@@ -30,22 +41,29 @@ data ParameterSpec
 
 -- |Holds the entire Namelist file, which is basically a list of namelists.
 data NamelistFile = NamelistFile
-    T.Text -- ^Comments. These are those that come at the start of the file.
-    [Namelist]  -- ^The namelists which make up the file
+    -- |Comments. These are those that come at the start of the file.
+    { nmlFile_comments :: T.Text
+    -- |The namelists which make up the file.
+    , nmlFile_namelists :: [Namelist]
+    }
     deriving (Show)
 
 -- |Holds the name and parameters for each namelist read in from namelist file.
 data Namelist = Namelist
-    T.Text
-    T.Text
-    (Map T.Text ParameterValue)
-    | NamelistMacro
-    T.Text
-    (Map T.Text ParameterValue)
+    -- |Name of the Namelist group
+    { nml_name :: T.Text
+    -- |Any comments that come after it TODO: deprecate this
+    , nml_comments :: T.Text
+    -- |Map of parameters and values
+    , nml_params :: Map T.Text ParameterValue
+    , nml_location :: SourcePos
+    }
     deriving (Eq, Show)
-    -- ^Name, comments and map of parameters. Comments are considered as those that come after the namelist.
 
 -- |The different types of parameter value.
+--
+-- TODO: in order to consider the locations of parameters, we need to reconsider
+-- combining arrays at this stage.
 data ParameterValue =
         ParString T.Text
         | ParDouble Double
@@ -69,4 +87,3 @@ instance ToParameterValue Double where
     toParameterValue double = ParDouble double
 
 type NamelistArray = M.Map (Int,Int) ParameterValue
--- type NamelistArray = [((Int,Int), ParameterValue]

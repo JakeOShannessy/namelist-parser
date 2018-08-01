@@ -47,8 +47,8 @@ namelistParser spec = do
 namelist :: (Monad m, Stream s m Char) => NamelistSpec -> ParsecT s u m Namelist
 namelist spec = do
     -- TODO: allow for the omission of trailing '/'
+    location <- getPosition
     char '&'
-    m <- optionMaybe (char '\'')
     name <- many1 letter <?> "group name"
     -- Once we have the name we use the data type specified in the
     -- spec, or throw an error if it isn't recognised.
@@ -65,9 +65,7 @@ namelist spec = do
                 (lookAhead ((try (do; endOfLine; spaces; char '&'; pure ())) <|> eof))
             spaces
             pure comments)
-    case m of
-        Just _ -> pure (NamelistMacro (T.pack name) parameterMap)
-        Nothing -> pure (Namelist (T.pack name) (T.pack comments) parameterMap)
+    pure (Namelist (T.pack name) (T.pack comments) parameterMap location)
     where
         combine
             (ParArray arry1)
@@ -313,16 +311,10 @@ instance PPrint NamelistFile where
 -- |Render a Namelist
 instance PPrint Namelist where
     -- show (Namelist name comments []) = "&" ++ name ++ " " ++ "/" ++ comments ++ "\n"
-    pprint (Namelist name comments parameters)
+    pprint (Namelist name comments parameters location)
         = "&" <> name <> " "
         <> (T.intercalate ",\n      " (renderParameters parameterList))
         <> " /" <> comments <> "\n"
-        where
-            parameterList = M.toList parameters
-    pprint (NamelistMacro name parameters)
-        = "&'" <> name <> " "
-        <> (T.intercalate ",\n      " (renderParameters parameterList))
-        <> " /" <> "" <> "\n"
         where
             parameterList = M.toList parameters
 

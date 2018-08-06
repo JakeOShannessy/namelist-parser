@@ -24,10 +24,8 @@ import Debug.Trace
 import Text.Parsec
 import Text.Parsec.Char
 import qualified Text.Parsec.Text as PT
--- import Text.Parsec.Text (Parser)
 import Text.Read
 import Text.Namelist.Types
--- import Text.Namelist.Raw.Types (Range())
 
 readNml :: NamelistSpec -> FilePath -> IO (Either ParseError NamelistFile)
 readNml spec filepath = do
@@ -97,11 +95,9 @@ parameter groupSpec = do
                     PSDouble -> number
                     PSInt -> number
                     PSBool -> boolean
-                    PSArray _ -> error "Can't have nested array types"
+                    PSArray _ -> fail "Can't have nested array types"
             values <- sepValList parser
             let value = case (pos,values) of
-                    -- (Nothing,[v]) -> v
-                    -- (Just posVals,[v]) -> ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt 1), Single 1) [v]
                     (Nothing, vs) ->  ParArray $ buildArray (Range (RangeValInt 1) (RangeValInt (length values)), Single 1) values
                     (Just posVals, vs) -> ParArray $ buildArray posVals values
             pure value
@@ -134,39 +130,11 @@ buildArrayIndices n ((Range _ _), (Range _ _)) = error "two dimensional ranges n
 -- then it is a parameter name and not part of the array.
 sepValList :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
     -> ParsecT s u m [ParameterValue]
--- TODO: still need to make sure that the next value is actually a value and not
--- a parameter name followed by an equals sign
-sepValList p = do
-    x <- p
-    -- all parameter values must be of the same constructor
-    xs <- many $ try (valParse p x <* notFollowedBy (spaces *> char '='))
-    pure (x:xs)
+sepValList p = many1 $ try (valParse p <* notFollowedBy (spaces *> char '='))
 
 valParse :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
-    -> ParameterValue -> ParsecT s u m ParameterValue
-valParse p x = do
-    v <- spaces *> optional (char ',') *> spaces *> p
-    if matchPValTypes x v
-        then pure v
-        else
-            -- fail "types in array don't match"
-            pure v
-
-matchPValTypes :: ParameterValue -> ParameterValue -> Bool
-matchPValTypes (ParString _) (ParString _) = True
-matchPValTypes (ParString _) _ = False
-
-matchPValTypes (ParDouble _) (ParDouble _) = True
-matchPValTypes (ParDouble _) _ = False
-
-matchPValTypes (ParInt _) (ParInt _) = True
-matchPValTypes (ParInt _) _ = False
-
-matchPValTypes (ParBool _) (ParBool _) =  True
-matchPValTypes (ParBool _) _ = False
-
-matchPValTypes (ParArray _) (ParArray _) = True
-matchPValTypes (ParArray _) _ = False
+    -> ParsecT s u m ParameterValue
+valParse p = spaces *> optional (char ',') *> spaces *> p
 
 paramName :: (Monad m, Stream s m Char) => ParsecT s u m String
 paramName = do
@@ -174,7 +142,6 @@ paramName = do
     remainingChars <- many (noneOf "=/( \n\t.,")
     pure $ initialChar:remainingChars
     <?> "parameter name"
--- paramName = many1 (alphaNum)
 
 paramPos :: (Monad m, Stream s m Char) => ParsecT s u m (Range, Range)
 paramPos = between (char '(') (char ')') $ do
@@ -225,9 +192,6 @@ number = do
 -- A boolean is either an F or T (case insensitive) followed by any series of
 -- non-whitespace characters. It may also pre prepended by a period.
 boolean :: (Monad m, Stream s m Char) => ParsecT s u m ParameterValue
--- boolean = char '.'*>
---     ((string "FALSE." *> pure (ParBool False))
---     <|> (string "TRUE." *> pure (ParBool True)))
 boolean = do
     optional (char '.')
     cs <- Text.Parsec.choice (fmap char ['t','T','f','F'])
@@ -237,9 +201,6 @@ boolean = do
         'T' -> ParBool True
         'f' -> ParBool False
         'F' -> ParBool False
-
--- floatNum :: (Monad m, Stream s m Char) => ParsecT s u m Double
--- floatNum = signage <*> (read <$> many1 (oneOf "0123456789-+Ee."))
 
 floatNumS :: (Monad m, Stream s m Char) => ParsecT s u m String
 floatNumS = do
@@ -341,16 +302,6 @@ instance PPrint ParameterValue where
     pprint (ParBool False)    = ".FALSE."
     -- TODO: fix this printing
     pprint (ParArray arry)     = T.intercalate "," (map (pprint . snd) $ M.assocs arry)
-
--- instance Show ParameterValue where
---     show (ParString s)      = "\'" <> show s <> "\'"
---     show (ParDouble n)      = show n
---     show (ParInt n)         = show n
---     show (ParBool True)     = ".TRUE."
---     show (ParBool False)    = ".FALSE."
---     -- TODO: fix this printing
---     show (ParArray arry)     = intercalate "," (map (show .snd) $ A.assocs arry)
-
 
 instance PPrint a => PPrint [a] where
     pprint ls = "[" <> T.intercalate "," (map pprint ls) <> "]"

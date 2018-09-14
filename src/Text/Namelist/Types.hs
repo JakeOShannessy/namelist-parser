@@ -46,7 +46,7 @@ data NamelistFile = NamelistFile
     -- |The namelists which make up the file.
     , nmlFile_namelists :: [Namelist]
     }
-    deriving (Show)
+    deriving (Eq, Show, Ord)
 
 -- |Holds the name and parameters for each namelist read in from namelist file.
 data Namelist = Namelist
@@ -58,7 +58,7 @@ data Namelist = Namelist
     , nml_params :: Map T.Text ParameterValue
     , nml_location :: SourcePos
     }
-    deriving (Eq, Show)
+    deriving (Eq, Show, Ord)
 
 -- |The different types of parameter value.
 --
@@ -70,7 +70,7 @@ data ParameterValue =
         | ParInt Int
         | ParBool Bool
         | ParArray NamelistArray
-        deriving (Eq, Show)
+        deriving (Eq, Show, Ord)
 
 
 class ToParameterValue a where
